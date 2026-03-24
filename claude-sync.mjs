@@ -214,7 +214,7 @@ function cmdInit(args) {
 
   // Initialize git
   log(`Initializing git in ${CLAUDE_DIR}`);
-  git("init -b main --quiet");
+  try { git("init -b main --quiet"); } catch { git("init --quiet"); git("checkout -b main"); }
 
   // Write .gitignore
   log("Writing .gitignore (smart defaults)");
@@ -341,11 +341,10 @@ function cmdClone(args) {
 
   log(`Cloning config from ${repo}...`);
 
-  git("init -b main --quiet");
+  try { git("init -b main --quiet"); } catch { git("init --quiet"); git("checkout -b main"); }
   git(`remote add origin https://github.com/${repo}.git`);
   git("fetch origin main --quiet");
-  git("reset origin/main --quiet");
-  try { git("checkout -- ."); } catch { /* ok */ }
+  git("reset --hard origin/main --quiet");
   try { git("branch --set-upstream-to=origin/main main"); } catch { /* ok */ }
 
   console.log("");
@@ -484,14 +483,17 @@ function cmdStatus() {
     git("log -1 --format=%ar", { ignoreError: true }) || "never";
   log(`Last sync: ${lastSync}`);
 
-  git("fetch origin main --quiet", { ignoreError: true });
-  const ahead =
-    git("rev-list --count origin/main..HEAD", { ignoreError: true }) || "?";
-  const behind =
-    git("rev-list --count HEAD..origin/main", { ignoreError: true }) || "?";
-  if (ahead !== "0") log(`Ahead of remote by ${ahead} commit(s) — run 'claude-sync push'`);
-  if (behind !== "0") log(`Behind remote by ${behind} commit(s) — run 'claude-sync pull'`);
-  if (ahead === "0" && behind === "0") log("In sync with remote.");
+  const remote = git("remote get-url origin", { ignoreError: true });
+  if (remote) {
+    git("fetch origin main --quiet", { ignoreError: true });
+    const ahead = git("rev-list --count origin/main..HEAD", { ignoreError: true });
+    const behind = git("rev-list --count HEAD..origin/main", { ignoreError: true });
+    if (ahead && ahead !== "0") log(`Ahead of remote by ${ahead} commit(s) — run 'claude-sync push'`);
+    if (behind && behind !== "0") log(`Behind remote by ${behind} commit(s) — run 'claude-sync pull'`);
+    if (ahead === "0" && behind === "0") log("In sync with remote.");
+  } else {
+    warn("No remote configured.");
+  }
 }
 
 function cmdDoctor() {
@@ -598,14 +600,14 @@ function cmdInstallHook() {
     // Claude Code's bash shell (even on Windows, Git Bash needs forward slashes)
     const scriptPath = join(homedir(), ".local", "bin", "claude-sync.mjs")
       .replace(/\\/g, "/");
-    const hookCommand = `node ${scriptPath} push -q -m auto-sync`;
+    const hookCommand = `node "${scriptPath}" push -q -m auto-sync`;
 
     // Create the Stop hook
     const syncHook = {
       hooks: [{
         type: "command",
         command: hookCommand,
-        timeout: 10,
+        timeout: 30,
       }],
     };
 
@@ -625,7 +627,7 @@ function cmdInstallHook() {
   "Stop": [{
     "hooks": [{
       "type": "command",
-      "command": "node ${fallbackPath} push -q -m auto-sync",
+      "command": "node \\"${fallbackPath}\\" push -q -m auto-sync",
       "timeout": 10
     }]
   }]
