@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/danielcregg/claude-sync/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://github.com/danielcregg/claude-sync/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/Claude%20Code-blueviolet.svg" alt="Claude Code">
   <img src="https://img.shields.io/badge/Node.js-informational.svg" alt="Node.js">
@@ -160,7 +160,6 @@ claude-sync status            # Check what's changed
 | Flag | Works With | What It Does |
 |------|-----------|-------------|
 | `-m, --message` | push | Custom commit message |
-| `-f, --force` | push, pull | Skip confirmation |
 | `-q, --quiet` | push, pull | Minimal output |
 | `-n, --dry-run` | push, pull | Preview without changes |
 | `--hook` | init | Install auto-sync hook |
@@ -312,11 +311,11 @@ No. `history.jsonl` and `projects/` are excluded by default. Conversations stay 
 
 ## Contributing
 
-Contributions welcome. This is a bash script — keep it simple.
+Contributions welcome. This is a single-file Node.js script — keep it simple, no npm dependencies.
 
 1. Fork this repository
 2. Create a feature branch
-3. Test on macOS, Linux, and Windows (Git Bash)
+3. Test on macOS, Linux, and Windows (PowerShell + Git Bash)
 4. Open a Pull Request
 
 ---

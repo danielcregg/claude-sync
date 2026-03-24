@@ -4,9 +4,9 @@
 // MIT License — Daniel Cregg
 
 import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { homedir, platform } from "os";
+import { homedir } from "os";
 
 const VERSION = "2.0.0";
 const REPO_NAME = "claude-sync-config";
@@ -396,7 +396,10 @@ function cmdPush(args) {
 
   const ts = new Date().toISOString().replace("T", " ").slice(0, 16);
   message = message || `sync: ${ts}`;
-  git(`commit -m "${message}" --quiet`);
+  // Use -- to prevent message from being interpreted as flags.
+  // Escape double quotes to prevent shell injection.
+  const safeMessage = message.replace(/"/g, '\\"');
+  git(`commit -m "${safeMessage}" --quiet`);
   git("push --quiet");
   if (!quiet) log("Pushed to GitHub.");
 }
@@ -608,9 +611,10 @@ ${c.bold}COMMANDS${c.reset}
   version           Show version
 
 ${c.bold}OPTIONS${c.reset}
-  -m, --message     Custom commit message (for push)
+  -m, --message MSG Custom commit message (for push)
   -q, --quiet       Minimal output
   -n, --dry-run     Show what would happen without doing it
+  --hook            Install auto-sync hook (for init)
   -h, --help        Show this help
 
 ${c.bold}EXAMPLES${c.reset}
