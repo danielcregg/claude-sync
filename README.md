@@ -183,7 +183,7 @@ The hook adds this to your `settings.json`:
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync 2>/dev/null || true",
+        "command": "claude-sync push -q -m auto-sync",
         "timeout": 10
       }]
     }]

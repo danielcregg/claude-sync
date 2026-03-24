@@ -4,7 +4,7 @@
 // MIT License — Daniel Cregg
 
 import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -397,10 +397,15 @@ function cmdPush(args) {
 
   const ts = new Date().toISOString().replace("T", " ").slice(0, 16);
   message = message || `sync: ${ts}`;
-  // Use -- to prevent message from being interpreted as flags.
-  // Escape double quotes to prevent shell injection.
-  const safeMessage = message.replace(/"/g, '\\"');
-  git(`commit -m "${safeMessage}" --quiet`);
+  // Write commit message to a temp file to avoid all shell injection issues.
+  // This is the only safe cross-platform approach — no escaping needed.
+  const tmpFile = join(CLAUDE_DIR, ".commit-msg.tmp");
+  writeFileSync(tmpFile, message);
+  try {
+    git(`commit --file "${tmpFile}" --quiet`);
+  } finally {
+    try { unlinkSync(tmpFile); } catch { /* ok */ }
+  }
   git("push --quiet");
   if (!quiet) log("Pushed to GitHub.");
 }
@@ -574,21 +579,26 @@ function cmdInstallHook() {
   }
 
   const content = readFileSync(settingsPath, "utf8");
-  if (content.includes("claude-sync")) {
-    log("Auto-sync hook already installed.");
-    return;
-  }
-
-  log("Installing auto-sync hook (pushes on session end)...");
 
   try {
     const settings = JSON.parse(content);
+
+    // Check if a claude-sync Stop hook already exists by parsing JSON structure
+    const hasHook = settings.hooks?.Stop?.some((entry) =>
+      entry.hooks?.some((h) => h.command?.includes("claude-sync") && h.command?.includes("push"))
+    );
+    if (hasHook) {
+      log("Auto-sync hook already installed.");
+      return;
+    }
+
+    log("Installing auto-sync hook (pushes on session end)...");
 
     // Create the Stop hook
     const syncHook = {
       hooks: [{
         type: "command",
-        command: "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync 2>/dev/null || true",
+        command: "claude-sync push -q -m auto-sync",
         timeout: 10,
       }],
     };
