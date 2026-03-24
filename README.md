@@ -6,9 +6,9 @@
 
 <p align="center">
   <a href="https://github.com/danielcregg/claude-sync/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Version-1.0.0-green.svg" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/Claude%20Code-blueviolet.svg" alt="Claude Code">
-  <img src="https://img.shields.io/badge/Shell-bash-informational.svg" alt="Bash">
+  <img src="https://img.shields.io/badge/Node.js-informational.svg" alt="Node.js">
   <img src="https://img.shields.io/badge/Dependencies-git%20%2B%20gh-lightgrey.svg" alt="Dependencies: git + gh">
   <img src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-supported-success.svg" alt="Cross-platform">
 </p>
@@ -47,15 +47,20 @@ claude-sync clone
 
 ### Install
 
+**macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danielcregg/claude-sync/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/danielcregg/claude-sync/main/install.sh | bash
 ```
 
-Or clone manually:
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/danielcregg/claude-sync/main/install.ps1 | iex
+```
+
+**Manual (any platform):**
 ```bash
 git clone https://github.com/danielcregg/claude-sync.git
-cp claude-sync/claude-sync ~/.local/bin/
-chmod +x ~/.local/bin/claude-sync
+node claude-sync/claude-sync.mjs version   # verify it works
 ```
 
 ### First Machine (setup)
@@ -172,13 +177,15 @@ Want changes pushed automatically when you exit Claude Code? Add a `Stop` hook t
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "claude-sync push -q -m 'auto-sync' 2>/dev/null || true",
+        "command": "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync",
         "timeout": 10
       }]
     }]
   }
 }
 ```
+
+> **Windows note:** Use the full path: `node %USERPROFILE%\\.local\\bin\\claude-sync.mjs push -q -m auto-sync`
 
 Or run `claude-sync init --hook` to get instructions for adding it.
 
@@ -221,33 +228,32 @@ If you store API keys in the `env` block of `settings.json`, they **will** be sy
 └──────────────────────────────────────────────────────────┘
 ```
 
-Under the hood, `claude-sync` initializes a git repo inside `~/.claude/`, adds a comprehensive `.gitignore`, and pushes to a private GitHub repo. That's it. No magic. No daemons. No cloud services. Just git.
+Under the hood, `claude-sync` is a single Node.js script that initializes a git repo inside `~/.claude/`, adds a comprehensive `.gitignore`, and pushes to a private GitHub repo. That's it. No magic. No daemons. No cloud services. Just Node.js and git. Works identically on Windows, macOS, and Linux.
 
 ---
 
 ## Requirements
 
+- **Node.js** — you already have this (Claude Code requires it)
 - **git** — you almost certainly have this
 - **gh** (GitHub CLI) — [install here](https://cli.github.com/) if you don't have it
 - **A GitHub account** — free tier works fine (unlimited private repos)
-
-Claude Code itself runs on Node.js, but `claude-sync` is a pure bash script with no runtime dependencies.
 
 ---
 
 ## Compared to Alternatives
 
-| Feature | claude-sync | dotfiles (manual) |
-|---------|:-----------:|:------------------:|
-| One-command setup | Yes | No |
-| No compiled binary | Yes | Yes | 
-| No cloud account | Yes | Yes |
-| No encryption keys | Yes | Yes |
-| Auto-sync hook | Yes | No |
-| Smart .gitignore | Yes | Manual |
-| Doctor/health check | Yes | No | 
-| Cross-platform | Yes | Partial | 
-| Dependencies | git, gh | git |
+| Feature | claude-sync | dotfiles (manual) | tawanorg/claude-sync | FelixIsaac/claude-code-sync |
+|---------|:-----------:|:------------------:|:-------------------:|:---------------------------:|
+| One-command setup | Yes | No | Yes | Yes |
+| PowerShell support | Yes | No | No | No |
+| No compiled binary | Yes | Yes | No (Go) | No (Go) |
+| No cloud account | Yes | Yes | No (R2/S3/GCS) | Yes |
+| No encryption keys | Yes | Yes | No (passphrase) | No (age keypair) |
+| Auto-sync hook | Yes | No | Yes | No |
+| Smart .gitignore | Yes | Manual | Hardcoded | Hardcoded |
+| Doctor/health check | Yes | No | No | Yes |
+| Dependencies | Node.js, git, gh | git | npm + Go binary | Go binary |
 
 ---
 
@@ -255,10 +261,11 @@ Claude Code itself runs on Node.js, but `claude-sync` is a pure bash script with
 
 | Platform | Status |
 |----------|--------|
-| macOS | Fully supported |
-| Linux | Fully supported |
+| macOS (bash/zsh) | Fully supported |
+| Linux (bash/zsh) | Fully supported |
+| Windows (PowerShell) | Fully supported |
+| Windows (cmd) | Fully supported |
 | Windows (Git Bash / WSL) | Fully supported |
-| Windows (PowerShell) | Not supported (use Git Bash) |
 
 ---
 
