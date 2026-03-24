@@ -23,10 +23,24 @@ if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
 
-# Download the Node.js script
+# Download the Node.js script and verify integrity
 $mjsPath = Join-Path $installDir "$scriptName.mjs"
 Write-Host "[claude-sync] Downloading claude-sync.mjs..."
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/claude-sync.mjs" -OutFile $mjsPath
+try {
+    $expectedHash = (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$repo/main/SHA256SUM" -ErrorAction Stop).Content.Trim()
+    $actualHash = (Get-FileHash -Path $mjsPath -Algorithm SHA256).Hash.ToLower()
+    if ($actualHash -ne $expectedHash) {
+        Write-Host "[claude-sync] WARNING: Checksum mismatch! Downloaded file may be corrupted." -ForegroundColor Red
+        Write-Host "[claude-sync] Expected: $expectedHash" -ForegroundColor Red
+        Write-Host "[claude-sync] Actual:   $actualHash" -ForegroundColor Red
+        Remove-Item -Path $mjsPath -Force
+        exit 1
+    }
+    Write-Host "[claude-sync] Checksum verified." -ForegroundColor Green
+} catch {
+    # SHA256SUM file not yet published — skip verification
+}
 
 # Create a .cmd launcher so 'claude-sync' works from cmd and PowerShell
 $cmdPath = Join-Path $installDir "$scriptName.cmd"

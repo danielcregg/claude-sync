@@ -57,11 +57,13 @@ curl -fsSL https://raw.githubusercontent.com/danielcregg/claude-sync/main/instal
 irm https://raw.githubusercontent.com/danielcregg/claude-sync/main/install.ps1 | iex
 ```
 
-**Manual (any platform):**
+**Manual (any platform — recommended if you prefer to audit the code first):**
 ```bash
 git clone https://github.com/danielcregg/claude-sync.git
 node claude-sync/claude-sync.mjs version   # verify it works
 ```
+
+> **Security note:** The one-liner installers (`curl | bash` and `irm | iex`) download and execute code from GitHub. Both scripts verify the download against a SHA256 checksum. If you prefer to review the code before running it, use the manual install method above.
 
 ### First Machine (setup)
 
