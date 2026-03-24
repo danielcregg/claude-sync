@@ -219,6 +219,54 @@ function cmdInit(args) {
   log("Writing .gitignore (smart defaults)");
   writeFileSync(join(CLAUDE_DIR, ".gitignore"), GITIGNORE);
 
+  // Write README
+  writeFileSync(
+    join(CLAUDE_DIR, "README.md"),
+    `# Claude Code Config
+
+This repo is managed by [claude-sync](https://github.com/danielcregg/claude-sync). It contains your Claude Code settings, skills, and configuration — synced across machines via a private GitHub repo.
+
+## What's in here
+
+| File/Dir | Purpose |
+|----------|---------|
+| \`settings.json\` | Plugins, permissions, model preferences |
+| \`skills/\` | Custom skills (invoked with \`/skill-name\`) |
+| \`agents/\` | Custom agent definitions |
+| \`commands/\` | Custom slash commands |
+| \`hooks/\` | Hook definitions |
+| \`rules/\` | Custom rules |
+| \`CLAUDE.md\` | Global instructions for Claude |
+| \`plugins/\` | Plugin list and marketplace config |
+
+## How to use
+
+\`\`\`bash
+# Push changes after editing skills or settings
+claude-sync push
+
+# Pull latest on another machine
+claude-sync pull
+
+# Set up a new machine
+claude-sync clone
+
+# Check sync status
+claude-sync status
+\`\`\`
+
+## Important
+
+- **Credentials are excluded** — \`.credentials.json\` and secrets never leave your machine
+- **Conversations are excluded** — \`projects/\` and \`history.jsonl\` stay local
+- This repo is **private** — only you can see it
+
+## More info
+
+See [claude-sync](https://github.com/danielcregg/claude-sync) for full documentation.
+`
+  );
+
   // Add remote
   try {
     git(`remote add origin https://github.com/${ghUser}/${REPO_NAME}.git`);
