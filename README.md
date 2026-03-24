@@ -237,17 +237,17 @@ Claude Code itself runs on Node.js, but `claude-sync` is a pure bash script with
 
 ## Compared to Alternatives
 
-| Feature | claude-sync | dotfiles (manual) | tawanorg/claude-sync | FelixIsaac/claude-code-sync |
-|---------|:-----------:|:------------------:|:-------------------:|:---------------------------:|
-| One-command setup | Yes | No | Yes | Yes |
-| No compiled binary | Yes | Yes | No (Go) | No (Go) |
-| No cloud account | Yes | Yes | No (R2/S3/GCS) | Yes |
-| No encryption keys | Yes | Yes | No (passphrase) | No (age keypair) |
-| Auto-sync hook | Yes | No | Yes | No |
-| Smart .gitignore | Yes | Manual | Hardcoded | Hardcoded |
-| Doctor/health check | Yes | No | No | Yes |
-| Cross-platform | Yes | Partial | Yes | Yes |
-| Dependencies | git, gh | git | npm + Go binary | Go binary |
+| Feature | claude-sync | dotfiles (manual) |
+|---------|:-----------:|:------------------:|
+| One-command setup | Yes | No |
+| No compiled binary | Yes | Yes | 
+| No cloud account | Yes | Yes |
+| No encryption keys | Yes | Yes |
+| Auto-sync hook | Yes | No |
+| Smart .gitignore | Yes | Manual |
+| Doctor/health check | Yes | No | 
+| Cross-platform | Yes | Partial | 
+| Dependencies | git, gh | git |
 
 ---
 
