@@ -36,7 +36,7 @@ Or worse — you make a great skill on your laptop and forget to copy it to your
 claude-sync init
 
 # On any other machine
-claude-sync clone yourname
+claude-sync clone yourgithubusername
 
 # That's it. Everything syncs.
 ```
