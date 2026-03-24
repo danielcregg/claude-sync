@@ -69,6 +69,7 @@ const GITIGNORE = `# managed by claude-sync
 # ── Credentials & Secrets (NEVER sync) ──
 .credentials.json
 credentials.json
+settings.local.json
 client_secret_*.json
 *.pem
 *.key
