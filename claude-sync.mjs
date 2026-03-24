@@ -181,7 +181,8 @@ function getGhUser() {
 // ─────────────────────────────────────────────
 
 function cmdInit(args) {
-  const installHook = args.includes("--hook");
+  const skipHook = args.includes("--no-hook");
+  const installHook = !skipHook;
 
   checkGit();
   checkGh();
@@ -299,9 +300,9 @@ See [claude-sync](https://github.com/danielcregg/claude-sync) for full documenta
   console.log("  claude-sync push     — push changes");
   console.log("  claude-sync pull     — pull on another machine");
   console.log("  claude-sync clone    — set up a new machine");
-  if (!installHook) {
+  if (skipHook) {
     console.log("");
-    log("Tip: Run 'claude-sync init --hook' to auto-sync on session end");
+    log("Auto-sync hook skipped. Run 'claude-sync hook' to install it later.");
   }
 }
 
@@ -568,30 +569,50 @@ function cmdInstallHook() {
   const settingsPath = join(CLAUDE_DIR, "settings.json");
 
   if (!existsSync(settingsPath)) {
-    error("settings.json not found");
+    warn("settings.json not found — skipping hook installation.");
     return;
   }
 
   const content = readFileSync(settingsPath, "utf8");
-  if (content.includes("claude-sync push")) {
+  if (content.includes("claude-sync")) {
     log("Auto-sync hook already installed.");
     return;
   }
 
   log("Installing auto-sync hook (pushes on session end)...");
-  warn("Note: You'll need to manually add the hook to settings.json.");
-  console.log("");
-  bold('Add this to your settings.json under "hooks":');
-  console.log("");
-  console.log(`"Stop": [{
-  "hooks": [{
-    "type": "command",
-    "command": "node ${join(homedir(), ".local", "bin", "claude-sync.mjs")} push -q -m auto-sync",
-    "timeout": 10
+
+  try {
+    const settings = JSON.parse(content);
+
+    // Create the Stop hook
+    const syncHook = {
+      hooks: [{
+        type: "command",
+        command: "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync 2>/dev/null || true",
+        timeout: 10,
+      }],
+    };
+
+    // Merge with existing hooks
+    if (!settings.hooks) settings.hooks = {};
+    if (!settings.hooks.Stop) settings.hooks.Stop = [];
+    settings.hooks.Stop.push(syncHook);
+
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    log("Auto-sync hook installed — settings will push on session end.");
+  } catch (e) {
+    warn("Could not auto-install hook. Add it manually to settings.json:");
+    console.log("");
+    console.log(`"hooks": {
+  "Stop": [{
+    "hooks": [{
+      "type": "command",
+      "command": "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync 2>/dev/null || true",
+      "timeout": 10
+    }]
   }]
-}]`);
-  console.log("");
-  log("Or run: /update-config in Claude Code to add it.");
+}`);
+  }
 }
 
 function showHelp() {
@@ -602,7 +623,7 @@ ${c.bold}USAGE${c.reset}
   claude-sync <command> [options]
 
 ${c.bold}COMMANDS${c.reset}
-  init              Set up sync (creates private GitHub repo, initial push)
+  init              Set up sync (creates repo, pushes, installs auto-sync hook)
   push              Commit and push changes to GitHub
   pull              Pull latest config from GitHub
   status            Show what has changed since last sync
@@ -614,11 +635,11 @@ ${c.bold}OPTIONS${c.reset}
   -m, --message MSG Custom commit message (for push)
   -q, --quiet       Minimal output
   -n, --dry-run     Show what would happen without doing it
-  --hook            Install auto-sync hook (for init)
+  --no-hook         Skip auto-sync hook installation (for init)
   -h, --help        Show this help
 
 ${c.bold}EXAMPLES${c.reset}
-  claude-sync init                    # First-time setup
+  claude-sync init                    # First-time setup (includes auto-sync hook)
   claude-sync push                    # Sync changes to GitHub
   claude-sync push -m "added skill"   # Push with custom message
   claude-sync pull                    # Pull on another machine
@@ -626,8 +647,8 @@ ${c.bold}EXAMPLES${c.reset}
   claude-sync status                  # Check what changed
 
 ${c.bold}AUTO-SYNC${c.reset}
-  claude-sync init --hook             # Also install auto-sync hook
-                                      # (pushes on session end)
+  Auto-sync hook is installed by default with init.
+  claude-sync init --no-hook          # Skip auto-sync hook
 `);
 }
 

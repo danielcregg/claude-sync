@@ -74,6 +74,7 @@ This:
 2. Writes a smart `.gitignore` that excludes secrets and ephemeral data
 3. Commits your settings, skills, agents, commands, and hooks
 4. Pushes to GitHub
+5. Installs an auto-sync hook (pushes on session end)
 
 ### New Machine (clone)
 
@@ -145,8 +146,8 @@ claude-sync status            # Check what's changed
 
 | Command | What It Does |
 |---------|-------------|
-| `claude-sync init` | First-time setup — creates private repo, initial push |
-| `claude-sync init --hook` | Setup + install auto-sync hook |
+| `claude-sync init` | First-time setup — creates repo, pushes, installs auto-sync hook |
+| `claude-sync init --no-hook` | Setup without auto-sync hook |
 | `claude-sync push` | Commit and push changes |
 | `claude-sync push -m "msg"` | Push with custom message |
 | `claude-sync pull` | Pull latest from GitHub |
@@ -162,13 +163,19 @@ claude-sync status            # Check what's changed
 | `-m, --message` | push | Custom commit message |
 | `-q, --quiet` | push, pull | Minimal output |
 | `-n, --dry-run` | push, pull | Preview without changes |
-| `--hook` | init | Install auto-sync hook |
+| `--no-hook` | init | Skip auto-sync hook |
 
 ---
 
-## Auto-Sync (Optional)
+## Auto-Sync (Enabled by Default)
 
-Want changes pushed automatically when you exit Claude Code? Add a `Stop` hook to your `settings.json`:
+`claude-sync init` automatically installs a `Stop` hook that pushes your config to GitHub whenever a Claude Code session ends. Your settings stay in sync without you having to remember to run `push`.
+
+To skip this during setup: `claude-sync init --no-hook`
+
+To install it later: `claude-sync hook`
+
+The hook adds this to your `settings.json`:
 
 ```json
 {
@@ -176,17 +183,13 @@ Want changes pushed automatically when you exit Claude Code? Add a `Stop` hook t
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync",
+        "command": "node ~/.local/bin/claude-sync.mjs push -q -m auto-sync 2>/dev/null || true",
         "timeout": 10
       }]
     }]
   }
 }
 ```
-
-> **Windows note:** Use the full path: `node %USERPROFILE%\\.local\\bin\\claude-sync.mjs push -q -m auto-sync`
-
-Or run `claude-sync init --hook` to get instructions for adding it.
 
 ---
 
