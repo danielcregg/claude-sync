@@ -36,7 +36,7 @@ Or worse — you make a great skill on your laptop and forget to copy it to your
 claude-sync init
 
 # On any other machine
-claude-sync clone yourgithubusername
+claude-sync clone
 
 # That's it. Everything syncs.
 ```
@@ -73,7 +73,7 @@ This:
 ### New Machine (clone)
 
 ```bash
-claude-sync clone yourgithubusername
+claude-sync clone
 ```
 
 Done. All your skills, settings, and config are there.
@@ -146,7 +146,7 @@ claude-sync status            # Check what's changed
 | `claude-sync push -m "msg"` | Push with custom message |
 | `claude-sync pull` | Pull latest from GitHub |
 | `claude-sync status` | Show changes and sync state |
-| `claude-sync clone <user>` | Set up new machine from existing repo |
+| `claude-sync clone` | Set up new machine from existing repo (auto-detects GitHub user) |
 | `claude-sync doctor` | Check sync health, detect issues |
 | `claude-sync version` | Show version |
 

@@ -121,7 +121,7 @@ ${BOLD}COMMANDS${NC}
   push              Commit and push changes to GitHub
   pull              Pull latest config from GitHub
   status            Show what has changed since last sync
-  clone <user>      Set up a new machine from an existing sync repo
+  clone [user]      Set up a new machine from an existing sync repo
   doctor            Check sync health and fix common issues
   version           Show version
 
@@ -252,7 +252,7 @@ cmd_init() {
   log "Commands:"
   echo "  claude-sync push     — push changes"
   echo "  claude-sync pull     — pull on another machine"
-  echo "  claude-sync clone $gh_user  — set up a new machine"
+  echo "  claude-sync clone            — set up a new machine"
   if ! $install_hook; then
     echo ""
     log "Tip: Run 'claude-sync init --hook' to auto-sync on session end"
@@ -261,9 +261,16 @@ cmd_init() {
 
 cmd_clone() {
   local gh_user="${1:-}"
+
+  # Auto-detect GitHub username if not provided
   if [[ -z "$gh_user" ]]; then
-    error "Usage: claude-sync clone <github-username>"
-    exit 1
+    gh_user=$(get_gh_user 2>/dev/null || true)
+    if [[ -z "$gh_user" ]]; then
+      error "Could not detect GitHub username."
+      error "Usage: claude-sync clone [github-username]"
+      exit 1
+    fi
+    log "Detected GitHub user: ${BOLD}$gh_user${NC}"
   fi
 
   check_git
