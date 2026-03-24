@@ -23,7 +23,9 @@ mkdir -p "$INSTALL_DIR"
 # Download the Node.js script and verify integrity
 curl -fsSL "https://raw.githubusercontent.com/$REPO/main/claude-sync.mjs" -o "$INSTALL_DIR/$SCRIPT_NAME.mjs"
 EXPECTED_HASH=$(curl -fsSL "https://raw.githubusercontent.com/$REPO/main/SHA256SUM" 2>/dev/null || true)
-if [[ -n "$EXPECTED_HASH" ]]; then
+if [[ -z "$EXPECTED_HASH" ]]; then
+  echo "[claude-sync] WARNING: Could not verify checksum (SHA256SUM not found). Proceeding without verification."
+elif [[ -n "$EXPECTED_HASH" ]]; then
   ACTUAL_HASH=$(shasum -a 256 "$INSTALL_DIR/$SCRIPT_NAME.mjs" 2>/dev/null | cut -d' ' -f1 || sha256sum "$INSTALL_DIR/$SCRIPT_NAME.mjs" 2>/dev/null | cut -d' ' -f1)
   if [[ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]]; then
     echo "[claude-sync] WARNING: Checksum mismatch! Downloaded file may be corrupted."

@@ -6,7 +6,8 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
+import { randomUUID } from "crypto";
 
 const VERSION = "2.0.0";
 const REPO_NAME = "claude-sync-config";
@@ -174,7 +175,12 @@ function isRepo() {
 }
 
 function getGhUser() {
-  return run('gh api user --jq ".login"', { silent: true, ignoreError: true });
+  const user = run('gh api user --jq ".login"', { silent: true, ignoreError: true });
+  if (user && !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(user)) {
+    error(`Invalid GitHub username: ${user}`);
+    process.exit(1);
+  }
+  return user;
 }
 
 // ─────────────────────────────────────────────
@@ -285,6 +291,7 @@ See [claude-sync](https://github.com/danielcregg/claude-sync) for full documenta
   try {
     git("push -u origin main --quiet");
   } catch {
+    warn("Remote has existing content — force pushing initial sync.");
     git("push -u origin main --force --quiet");
   }
 
@@ -398,8 +405,8 @@ function cmdPush(args) {
   const ts = new Date().toISOString().replace("T", " ").slice(0, 16);
   message = message || `sync: ${ts}`;
   // Write commit message to a temp file to avoid all shell injection issues.
-  // This is the only safe cross-platform approach — no escaping needed.
-  const tmpFile = join(CLAUDE_DIR, ".commit-msg.tmp");
+  // Uses OS temp dir with random name to prevent race conditions.
+  const tmpFile = join(tmpdir(), `.claude-sync-commit-${randomUUID()}.tmp`);
   writeFileSync(tmpFile, message);
   try {
     git(`commit --file "${tmpFile}" --quiet`);
@@ -456,6 +463,7 @@ function cmdPull(args) {
       git("stash pop --quiet");
     } catch {
       warn(`Merge conflict — resolve manually in ${CLAUDE_DIR}`);
+      warn("Your local changes are stashed. Run 'git stash list' to see them, 'git stash pop' to re-apply.");
     }
   }
 
@@ -469,14 +477,13 @@ function cmdStatus() {
     process.exit(1);
   }
 
-  git("add -A", { ignoreError: true });
-
-  try {
-    git("diff --cached --quiet", { silent: true });
+  // Use git status (read-only) instead of git add -A which modifies the index
+  const statusOutput = git("status --porcelain", { ignoreError: true });
+  if (!statusOutput) {
     log("Clean — no changes since last sync.");
-  } catch {
+  } else {
     log("Changes since last sync:");
-    console.log(git("diff --cached --stat"));
+    console.log(statusOutput);
   }
 
   console.log("");
