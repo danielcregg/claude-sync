@@ -175,7 +175,7 @@ To skip this during setup: `claude-sync init --no-hook`
 
 To install it later: `claude-sync hook`
 
-The hook adds this to your `settings.json`:
+The hook adds this to your `settings.json` (with the absolute path to your install):
 
 ```json
 {
@@ -183,13 +183,15 @@ The hook adds this to your `settings.json`:
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "claude-sync push -q -m auto-sync",
+        "command": "node /home/you/.local/bin/claude-sync.mjs push -q -m auto-sync",
         "timeout": 10
       }]
     }]
   }
 }
 ```
+
+The path is detected automatically at install time — no manual editing needed.
 
 ---
 
