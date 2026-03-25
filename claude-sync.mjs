@@ -380,32 +380,14 @@ function cmdInit(args) {
         { ignoreError: true }
       );
     } else {
-      // Fallback: create repo via GitHub API using git credentials
-      warn("gh not found — trying to create repo via GitHub API...");
-      try {
-        const result = run(
-          `curl -s -f -X POST https://api.github.com/user/repos ` +
-          `-H "Accept: application/vnd.github+json" ` +
-          `-u "${ghUser}" ` +
-          `-d '{"name":"${REPO_NAME}","private":true,"description":"Claude Code settings, skills, and config — synced by claude-sync"}'`,
-          { ignoreError: true }
-        );
-        if (result.includes(`"full_name"`)) {
-          log("Repo created via GitHub API.");
-        } else {
-          error("Could not create repo automatically.");
-          error(`Please create a private repo called '${REPO_NAME}' on GitHub manually:`);
-          error(`  https://github.com/new?name=${REPO_NAME}&visibility=private`);
-          error("Then run 'claude-sync init' again.");
-          process.exit(1);
-        }
-      } catch {
-        error("Could not create repo automatically.");
-        error(`Please create a private repo called '${REPO_NAME}' on GitHub manually:`);
-        error(`  https://github.com/new?name=${REPO_NAME}&visibility=private`);
-        error("Then run 'claude-sync init' again.");
-        process.exit(1);
-      }
+      // Fallback: tell user to create repo manually (cross-platform, no curl dependency)
+      warn("gh not found — cannot create repo automatically.");
+      error("");
+      error(`Please create a private repo called '${REPO_NAME}' on GitHub:`);
+      error(`  https://github.com/new?name=${REPO_NAME}&visibility=private`);
+      error("");
+      error("Then run 'claude-sync init' again.");
+      process.exit(1);
     }
 
     initGitAndPush(ghUser, installHook);
