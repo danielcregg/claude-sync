@@ -4,8 +4,8 @@
 // MIT License — Daniel Cregg
 
 import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, rmSync, mkdirSync, cpSync } from "fs";
+import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
 import { randomUUID } from "crypto";
 
@@ -390,10 +390,16 @@ function cmdDiff(args) {
   log("Fetching remote config for comparison...");
   run(`git clone --quiet https://github.com/${repo}.git "${tmpDir}"`);
 
-  // Compare key files
+  // Compare all synced files (must match what README says is synced)
   const filesToCompare = [
     "settings.json",
     ".gitignore",
+    "CLAUDE.md",
+    "keybindings.json",
+    "statusline-command.sh",
+    "plugins/installed_plugins.json",
+    "plugins/known_marketplaces.json",
+    "plugins/blocklist.json",
   ];
 
   let differences = 0;
@@ -446,7 +452,7 @@ function cmdDiff(args) {
     const localSkills = new Set();
     if (existsSync(localSkillsDir)) {
       try {
-        const dirs = run(`ls "${localSkillsDir}"`, { ignoreError: true }).split("\n").filter(Boolean);
+        const dirs = readdirSync(localSkillsDir);
         for (const d of dirs) localSkills.add(d);
       } catch { /* ok */ }
     }
@@ -483,24 +489,50 @@ function cmdDiff(args) {
     }
   }
 
-  // Compare commands
-  const localCmdsDir = join(CLAUDE_DIR, "commands");
-  const remoteCmdsDir = join(tmpDir, "commands");
-  if (existsSync(remoteCmdsDir)) {
-    try {
-      const remoteCmds = run(`ls "${remoteCmdsDir}"`, { ignoreError: true }).split("\n").filter(Boolean);
-      for (const cmd of remoteCmds) {
-        const localCmd = join(localCmdsDir, cmd);
-        if (!existsSync(localCmd)) {
-          log(`${c.green}+ commands/${cmd}${c.reset} (new command — will be added)`);
-          differences++;
+  // Compare directories that contain simple files (commands, agents, hooks, rules)
+  const dirsToCompare = ["commands", "agents", "hooks", "rules"];
+  for (const dirName of dirsToCompare) {
+    const localDir = join(CLAUDE_DIR, dirName);
+    const remoteDir = join(tmpDir, dirName);
+    if (existsSync(remoteDir)) {
+      try {
+        const remoteFiles = readdirSync(remoteDir).filter(f => !f.startsWith("."));
+        for (const file of remoteFiles) {
+          const localFile = join(localDir, file);
+          const remoteFile = join(remoteDir, file);
+          if (!existsSync(localFile)) {
+            log(`${c.green}+ ${dirName}/${file}${c.reset} (new — will be added)`);
+            differences++;
+          } else {
+            try {
+              const l = readFileSync(localFile, "utf8");
+              const r = readFileSync(remoteFile, "utf8");
+              if (l !== r) {
+                log(`${c.yellow}~ ${dirName}/${file}${c.reset} (differs — will be overwritten)`);
+                differences++;
+              }
+            } catch { /* binary or unreadable — skip */ }
+          }
         }
+      } catch { /* ok */ }
+
+      // Local-only files in this dir
+      if (existsSync(localDir)) {
+        try {
+          const localFiles = readdirSync(localDir).filter(f => !f.startsWith("."));
+          const remoteFiles = new Set(readdirSync(remoteDir).filter(f => !f.startsWith(".")));
+          for (const file of localFiles) {
+            if (!remoteFiles.has(file)) {
+              log(`  ${dirName}/${file} (local only — will be kept)`);
+            }
+          }
+        } catch { /* ok */ }
       }
-    } catch { /* ok */ }
+    }
   }
 
   // Cleanup
-  try { run(`rm -rf "${tmpDir}"`, { ignoreError: true }); } catch { /* ok */ }
+  try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
 
   console.log("");
   if (differences === 0) {
@@ -530,28 +562,35 @@ function cmdBackup() {
     "CLAUDE.md",
     "statusline-command.sh",
     ".gitignore",
+    join("plugins", "installed_plugins.json"),
+    join("plugins", "known_marketplaces.json"),
+    join("plugins", "blocklist.json"),
   ];
 
   const dirsToCopy = ["skills", "commands", "agents", "hooks", "rules"];
 
-  run(`mkdir -p "${backupDir}"`);
+  mkdirSync(backupDir, { recursive: true });
 
   for (const file of toCopy) {
     const src = join(CLAUDE_DIR, file);
+    const dest = join(backupDir, file);
     if (existsSync(src)) {
-      run(`cp "${src}" "${backupDir}/"`, { ignoreError: true });
+      // Ensure parent directory exists (for nested paths like plugins/*)
+      mkdirSync(dirname(dest), { recursive: true });
+      try { copyFileSync(src, dest); } catch { /* ok */ }
     }
   }
 
   for (const dir of dirsToCopy) {
     const src = join(CLAUDE_DIR, dir);
+    const dest = join(backupDir, dir);
     if (existsSync(src)) {
-      run(`cp -r "${src}" "${backupDir}/"`, { ignoreError: true });
+      try { cpSync(src, dest, { recursive: true }); } catch { /* ok */ }
     }
   }
 
   log(`Backup complete: ${backupDir}`);
-  log("To restore: cp -r " + backupDir + "/* ~/.claude/");
+  log(`To restore, copy files from ${backupDir} back to ${CLAUDE_DIR}`);
 }
 
 function cmdPush(args) {

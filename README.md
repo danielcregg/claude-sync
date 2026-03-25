@@ -154,10 +154,11 @@ claude-sync status            # Check what's changed
 | `claude-sync push -m "msg"` | Push with custom message |
 | `claude-sync pull` | Pull latest from GitHub |
 | `claude-sync status` | Show changes and sync state |
-| `claude-sync clone` | Set up new machine from existing repo (auto-detects GitHub user) |
-| `claude-sync diff` | Preview what would change before cloning (safe, read-only) |
+| `claude-sync clone [user]` | Set up new machine from existing repo (auto-detects GitHub user) |
+| `claude-sync diff` / `preview` | Preview what would change before cloning (safe, read-only) |
 | `claude-sync backup` | Back up current config before syncing |
 | `claude-sync doctor` | Check sync health, detect issues |
+| `claude-sync hook`   | Install the auto-sync hook |
 | `claude-sync version` | Show version |
 
 ### Flags
@@ -188,7 +189,7 @@ The hook adds this to your `settings.json` (with the absolute path to your insta
       "hooks": [{
         "type": "command",
         "command": "node /home/you/.local/bin/claude-sync.mjs push -q -m auto-sync",
-        "timeout": 10
+        "timeout": 30
       }]
     }]
   }
