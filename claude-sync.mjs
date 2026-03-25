@@ -13,6 +13,47 @@ const VERSION = "2.0.0";
 const REPO_NAME = "claude-sync-config";
 const GITIGNORE_MARKER = "# managed by claude-sync";
 
+const CONFIG_README = `# Claude Code Config
+
+This repo is managed by [claude-sync](https://github.com/danielcregg/claude-sync). It contains your Claude Code settings, skills, and configuration — synced across machines via a private GitHub repo.
+
+## What's in here
+
+| File/Dir | Purpose |
+|----------|---------|
+| \`settings.json\` | Plugins, permissions, model preferences |
+| \`skills/\` | Custom skills (invoked with \`/skill-name\`) |
+| \`agents/\` | Custom agent definitions |
+| \`commands/\` | Custom slash commands |
+| \`hooks/\` | Hook definitions |
+| \`rules/\` | Custom rules |
+| \`CLAUDE.md\` | Global instructions for Claude |
+| \`plugins/\` | Plugin list and marketplace config |
+
+## How to use
+
+\`\`\`bash
+# Push changes after editing skills or settings
+claude-sync push
+
+# Pull latest on another machine
+claude-sync pull
+
+# Check sync status
+claude-sync status
+\`\`\`
+
+## Important
+
+- **Credentials are excluded** — \`.credentials.json\` and secrets never leave your machine
+- **Conversations are excluded** — \`projects/\` and \`history.jsonl\` stay local
+- This repo is **private** — only you can see it
+
+## More info
+
+See [claude-sync](https://github.com/danielcregg/claude-sync) for full documentation.
+`;
+
 // ─────────────────────────────────────────────
 // Cross-platform helpers
 // ─────────────────────────────────────────────
@@ -166,12 +207,8 @@ function checkClaudeDir() {
 }
 
 function isRepo() {
-  try {
-    git("rev-parse --git-dir", { silent: true });
-    return true;
-  } catch {
-    return false;
-  }
+  // Check if .git directory exists (works even with dubious ownership errors)
+  return existsSync(join(CLAUDE_DIR, ".git"));
 }
 
 function getGhUser() {
@@ -207,19 +244,79 @@ function cmdInit(args) {
   }
   log(`GitHub user: ${c.bold}${ghUser}${c.reset}`);
 
-  // Create private repo if it doesn't exist
+  // Detect scenario: does a remote sync repo already exist?
+  let remoteExists = false;
   try {
     run(`gh repo view ${ghUser}/${REPO_NAME}`, { silent: true });
-    log(`Repo ${ghUser}/${REPO_NAME} already exists.`);
+    remoteExists = true;
   } catch {
+    remoteExists = false;
+  }
+
+  // Check if local has existing config worth preserving
+  const hasLocalConfig = existsSync(join(CLAUDE_DIR, "settings.json")) ||
+    existsSync(join(CLAUDE_DIR, "skills"));
+
+  // ─── Scenario 1: No remote repo → This is the first machine ───
+  if (!remoteExists) {
+    log("No sync repo found — setting up for the first time.");
     log(`Creating private repo: ${ghUser}/${REPO_NAME}`);
     run(
       `gh repo create ${REPO_NAME} --private --description "Claude Code settings, skills, and config — synced by claude-sync"`,
       { ignoreError: true }
     );
+
+    initGitAndPush(ghUser, installHook);
+    return;
   }
 
-  // Initialize git
+  // ─── Scenario 2: Remote exists + fresh local install → Clone directly ───
+  if (remoteExists && !hasLocalConfig) {
+    log("Sync repo found and local config is fresh — pulling remote config.");
+    cloneFromRemote(ghUser);
+
+    if (installHook) cmdInstallHook();
+
+    console.log("");
+    log("Sync initialized! Your config has been pulled from GitHub.");
+    bold(`  Repo:   https://github.com/${ghUser}/${REPO_NAME} (private)`);
+    return;
+  }
+
+  // ─── Scenario 3: Remote exists + local has config → Backup, compare, merge ───
+  log("Sync repo found and you have existing local config.");
+  log("");
+
+  // Step 1: Auto-backup
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const backupDir = `${CLAUDE_DIR}-backup-${timestamp}`;
+  log(`Step 1: Backing up current config to ${backupDir}`);
+  cmdBackup();
+
+  // Step 2: Show diff
+  log("");
+  log("Step 2: Comparing local vs remote config...");
+  log("");
+  cmdDiff([ghUser]);
+
+  // Step 3: Clone from remote
+  log("");
+  log("Step 3: Pulling remote config (your backup is safe)...");
+  cloneFromRemote(ghUser);
+
+  if (installHook) cmdInstallHook();
+
+  console.log("");
+  log("Sync initialized!");
+  bold(`  Repo:   https://github.com/${ghUser}/${REPO_NAME} (private)`);
+  console.log("");
+  log("Your previous config was backed up. To restore anything:");
+  console.log(`  Copy files from ${backupDir} back to ${CLAUDE_DIR}`);
+  console.log("  Then run: claude-sync push -m \"merged local config\"");
+}
+
+// Helper: Initialize git, write config files, commit, and push
+function initGitAndPush(ghUser, installHook) {
   log(`Initializing git in ${CLAUDE_DIR}`);
   try { git("init -b main --quiet"); } catch { git("init --quiet"); git("checkout -b main"); }
 
@@ -228,60 +325,13 @@ function cmdInit(args) {
   writeFileSync(join(CLAUDE_DIR, ".gitignore"), GITIGNORE);
 
   // Write README
-  writeFileSync(
-    join(CLAUDE_DIR, "README.md"),
-    `# Claude Code Config
-
-This repo is managed by [claude-sync](https://github.com/danielcregg/claude-sync). It contains your Claude Code settings, skills, and configuration — synced across machines via a private GitHub repo.
-
-## What's in here
-
-| File/Dir | Purpose |
-|----------|---------|
-| \`settings.json\` | Plugins, permissions, model preferences |
-| \`skills/\` | Custom skills (invoked with \`/skill-name\`) |
-| \`agents/\` | Custom agent definitions |
-| \`commands/\` | Custom slash commands |
-| \`hooks/\` | Hook definitions |
-| \`rules/\` | Custom rules |
-| \`CLAUDE.md\` | Global instructions for Claude |
-| \`plugins/\` | Plugin list and marketplace config |
-
-## How to use
-
-\`\`\`bash
-# Push changes after editing skills or settings
-claude-sync push
-
-# Pull latest on another machine
-claude-sync pull
-
-# Set up a new machine
-claude-sync clone
-
-# Check sync status
-claude-sync status
-\`\`\`
-
-## Important
-
-- **Credentials are excluded** — \`.credentials.json\` and secrets never leave your machine
-- **Conversations are excluded** — \`projects/\` and \`history.jsonl\` stay local
-- This repo is **private** — only you can see it
-
-## More info
-
-See [claude-sync](https://github.com/danielcregg/claude-sync) for full documentation.
-`
-  );
+  writeFileSync(join(CLAUDE_DIR, "README.md"), CONFIG_README);
 
   // Add remote
   try {
     git(`remote add origin https://github.com/${ghUser}/${REPO_NAME}.git`);
   } catch {
-    git(
-      `remote set-url origin https://github.com/${ghUser}/${REPO_NAME}.git`
-    );
+    git(`remote set-url origin https://github.com/${ghUser}/${REPO_NAME}.git`);
   }
 
   // Initial commit and push
@@ -295,23 +345,26 @@ See [claude-sync](https://github.com/danielcregg/claude-sync) for full documenta
     git("push -u origin main --force --quiet");
   }
 
-  if (installHook) {
-    cmdInstallHook();
-  }
+  if (installHook) cmdInstallHook();
 
   console.log("");
   log("Sync initialized!");
   bold(`  Repo:   https://github.com/${ghUser}/${REPO_NAME} (private)`);
   bold(`  Config: ${CLAUDE_DIR}`);
-  console.log("");
-  log("Commands:");
-  console.log("  claude-sync push     — push changes");
-  console.log("  claude-sync pull     — pull on another machine");
-  console.log("  claude-sync clone    — set up a new machine");
-  if (skipHook) {
-    console.log("");
-    log("Auto-sync hook skipped. Run 'claude-sync hook' to install it later.");
+}
+
+// Helper: Clone from existing remote repo
+function cloneFromRemote(ghUser) {
+  const repo = `${ghUser}/${REPO_NAME}`;
+  try { git("init -b main --quiet"); } catch { git("init --quiet"); git("checkout -b main"); }
+  try {
+    git(`remote add origin https://github.com/${repo}.git`);
+  } catch {
+    git(`remote set-url origin https://github.com/${repo}.git`);
   }
+  git("fetch origin main --quiet");
+  git("reset --hard origin/main --quiet");
+  try { git("branch --set-upstream-to=origin/main main"); } catch { /* ok */ }
 }
 
 function cmdClone(args) {

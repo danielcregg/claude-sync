@@ -32,13 +32,10 @@ Or worse — you make a great skill on your laptop and forget to copy it to your
 ## The Solution
 
 ```bash
-# On your main machine (once)
+# On every machine — just run init
 claude-sync init
 
-# On any other machine
-claude-sync clone
-
-# That's it. Everything syncs.
+# That's it. init detects whether to push or pull automatically.
 ```
 
 ---
@@ -65,39 +62,21 @@ node claude-sync/claude-sync.mjs version   # verify it works
 
 > **Security note:** The one-liner installers download and execute code from GitHub. If you prefer to review the code before running it, use the manual install method above. The SHA256SUM file in the repo can be used for manual verification.
 
-### First Machine (setup)
+### Every Machine — Just Run Init
 
 ```bash
 claude-sync init
 ```
 
-This:
-1. Creates a **private** GitHub repo (`claude-sync-config`)
-2. Writes a smart `.gitignore` that excludes secrets and ephemeral data
-3. Commits your settings, skills, agents, commands, and hooks
-4. Pushes to GitHub
-5. Installs an auto-sync hook (pushes on session end)
+That's it. `init` is smart — it detects your situation automatically:
 
-### New Machine — Fresh Claude Code Install
+| Scenario | What `init` Does |
+|----------|-----------------|
+| **First machine** (no sync repo exists) | Creates a private GitHub repo, pushes your config |
+| **New machine** (fresh Claude Code install) | Detects the remote repo, pulls your config |
+| **Existing machine** (has settings & skills) | Backs up your config, shows what's different, pulls remote config, tells you how to merge |
 
-If Claude Code is freshly installed with no custom settings:
-
-```bash
-claude-sync clone
-```
-
-Done. All your skills, settings, and config are pulled from GitHub.
-
-### New Machine — Existing Claude Code Install
-
-If you already have settings and skills you want to keep:
-
-```bash
-claude-sync diff              # Preview what would change (read-only, safe)
-claude-sync backup            # Back up current config
-claude-sync clone             # Pull remote config
-# Copy back anything you want to keep from the backup
-```
+You never need to figure out whether to run `clone`, `diff`, or `backup` — `init` handles it all.
 
 ### Keep in Sync
 
@@ -106,6 +85,8 @@ claude-sync push              # After making changes
 claude-sync pull              # Before starting work on another machine
 claude-sync status            # Check what's changed
 ```
+
+Settings auto-sync on session end via a Stop hook (installed by `init`).
 
 ---
 
