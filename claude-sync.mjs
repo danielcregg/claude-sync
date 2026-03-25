@@ -4,7 +4,7 @@
 // MIT License — Daniel Cregg
 
 import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, rmSync, mkdirSync, cpSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, rmSync, mkdirSync, cpSync, copyFileSync, statSync } from "fs";
 import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
 import { randomUUID } from "crypto";
@@ -494,40 +494,65 @@ function cmdDiff(args) {
   for (const dirName of dirsToCompare) {
     const localDir = join(CLAUDE_DIR, dirName);
     const remoteDir = join(tmpDir, dirName);
+    
+    // If local dir exists but remote doesn't, all local files are kept
+    if (existsSync(localDir) && !existsSync(remoteDir)) {
+      try {
+        const localFiles = readdirSync(localDir).filter(f => !f.startsWith("."));
+        for (const file of localFiles) {
+          log(`  ${dirName}/${file} (local only — will be kept)`);
+        }
+      } catch { /* ok */ }
+      continue;
+    }
+
+    // If remote exists (and local may or may not exist)
     if (existsSync(remoteDir)) {
       try {
         const remoteFiles = readdirSync(remoteDir).filter(f => !f.startsWith("."));
+        const localFilesSet = existsSync(localDir) ? new Set(readdirSync(localDir)) : new Set();
+        
         for (const file of remoteFiles) {
           const localFile = join(localDir, file);
           const remoteFile = join(remoteDir, file);
-          if (!existsSync(localFile)) {
+          
+          if (!localFilesSet.has(file)) {
             log(`${c.green}+ ${dirName}/${file}${c.reset} (new — will be added)`);
             differences++;
           } else {
             try {
-              const l = readFileSync(localFile, "utf8");
-              const r = readFileSync(remoteFile, "utf8");
-              if (l !== r) {
-                log(`${c.yellow}~ ${dirName}/${file}${c.reset} (differs — will be overwritten)`);
-                differences++;
+              const lStat = statSync(localFile);
+              const rStat = statSync(remoteFile);
+              
+              if (lStat.isFile() && rStat.isFile()) {
+                const l = readFileSync(localFile, "utf8");
+                const r = readFileSync(remoteFile, "utf8");
+                if (l !== r) {
+                  log(`${c.yellow}~ ${dirName}/${file}${c.reset} (differs — will be overwritten)`);
+                  differences++;
+                }
+              } else if (lStat.isDirectory() && rStat.isDirectory()) {
+                 // Skip deep comparison for directories to avoid complexity
+              } else {
+                 // Type mismatch
+                 log(`${c.yellow}~ ${dirName}/${file}${c.reset} (type mismatch — will be overwritten)`);
+                 differences++;
               }
             } catch { /* binary or unreadable — skip */ }
           }
         }
-      } catch { /* ok */ }
 
-      // Local-only files in this dir
-      if (existsSync(localDir)) {
-        try {
+        // Local-only files in this dir
+        if (existsSync(localDir)) {
           const localFiles = readdirSync(localDir).filter(f => !f.startsWith("."));
-          const remoteFiles = new Set(readdirSync(remoteDir).filter(f => !f.startsWith(".")));
+          const remoteFilesSet = new Set(remoteFiles);
           for (const file of localFiles) {
-            if (!remoteFiles.has(file)) {
+            if (!remoteFilesSet.has(file)) {
               log(`  ${dirName}/${file} (local only — will be kept)`);
             }
           }
-        } catch { /* ok */ }
-      }
+        }
+      } catch { /* ok */ }
     }
   }
 
