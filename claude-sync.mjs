@@ -785,10 +785,20 @@ function updateDeviceRegistry() {
   const devicesFile = join(CLAUDE_DIR, "devices.json");
   let devices = {};
 
-  // Load existing registry
+  // Load existing registry — handle merge conflict markers gracefully
   if (existsSync(devicesFile)) {
     try {
-      devices = JSON.parse(readFileSync(devicesFile, "utf8"));
+      let content = readFileSync(devicesFile, "utf8");
+      // Strip git merge conflict markers if present
+      if (content.includes("<<<<<<<")) {
+        content = content.replace(/<<<<<<< .+\n/g, "")
+          .replace(/=======\n/g, "")
+          .replace(/>>>>>>> .+\n/g, "");
+        // Try to parse the cleaned content, fall back to empty
+        try { devices = JSON.parse(content); } catch { devices = {}; }
+      } else {
+        devices = JSON.parse(content);
+      }
     } catch { devices = {}; }
   }
 
@@ -996,9 +1006,17 @@ function cmdPush(args) {
   try {
     git("push --quiet");
   } catch {
-    // Fallback for detached HEAD (can happen after rebase)
+    // Push rejected — pull first, resolve any conflicts, then retry
     git("checkout main --quiet", { ignoreError: true });
-    git("push origin main --quiet");
+    try {
+      git("pull --rebase origin main --quiet");
+    } catch {
+      // Rebase conflict (likely devices.json) — auto-resolve and continue
+      updateDeviceRegistry();  // Re-merge device entries
+      git("add -A", { ignoreError: true });
+      try { execSync('GIT_EDITOR=true git -C "' + CLAUDE_DIR + '" rebase --continue', { stdio: "pipe", encoding: "utf8" }); } catch { /* ok */ }
+    }
+    git("push origin main --quiet", { ignoreError: true });
   }
   if (!quiet) log("Pushed to GitHub.");
 }
