@@ -882,6 +882,10 @@ function cmdPull(args) {
     return;
   }
 
+  // Check what's coming before pulling
+  git("fetch origin main --quiet", { ignoreError: true });
+  const incoming = git("diff HEAD..origin/main --stat", { ignoreError: true });
+
   // Stash local changes, pull, pop
   let hadChanges = false;
   git("add -A", { ignoreError: true });
@@ -907,7 +911,14 @@ function cmdPull(args) {
     }
   }
 
-  if (!quiet) log("Pulled latest config.");
+  if (!quiet) {
+    if (incoming) {
+      log("Pulled changes:");
+      console.log(incoming);
+    } else {
+      log("Already up to date — nothing to pull.");
+    }
+  }
 }
 
 function cmdStatus() {
