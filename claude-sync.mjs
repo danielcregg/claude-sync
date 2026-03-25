@@ -236,9 +236,17 @@ function installGhUserSpace() {
 function ensureGh() {
   if (hasGh()) return true;
   if (installGhUserSpace()) {
-    // After install, need to auth
+    // gh installed but needs auth — run interactive login
+    log("gh installed. You need to authenticate with GitHub.");
+    log("Running: gh auth login");
+    console.log("");
+    try {
+      execSync("gh auth login", { stdio: "inherit" });
+    } catch {
+      warn("gh auth login was cancelled or failed.");
+    }
     if (hasGh()) return true;
-    log("gh installed but not authenticated. Run: gh auth login");
+    warn("gh not authenticated. Some features may not work.");
     return false;
   }
   return false;
@@ -311,12 +319,19 @@ function cmdInit(args) {
     return;
   }
 
-  // Allow username override via argument
+  // Step 1: Ensure gh is available and authenticated
+  // This is the key to frictionless setup — gh handles all auth for us
+  if (!hasGh()) {
+    log("GitHub CLI (gh) not found — needed for authentication.");
+    ensureGh();
+  }
+
+  // Step 2: Get username (gh is the primary source now that it's ensured)
   const userArg = args.find(a => !a.startsWith("-"));
   let ghUser = userArg || getGhUser();
 
   if (!ghUser) {
-    error("Could not detect your GitHub username automatically.");
+    error("Could not detect your GitHub username.");
     error("");
     error("Please provide it: claude-sync init <github-username>");
     error("Example: claude-sync init danielcregg");
@@ -325,8 +340,7 @@ function cmdInit(args) {
 
   log(`GitHub user: ${c.bold}${ghUser}${c.reset}`);
 
-  // Detect scenario: does a remote sync repo already exist?
-  // Try gh first, fall back to git ls-remote
+  // Step 3: Detect if remote sync repo exists
   let remoteExists = false;
   if (hasGh()) {
     try {
@@ -336,7 +350,6 @@ function cmdInit(args) {
       remoteExists = false;
     }
   } else {
-    // No gh — try git ls-remote to check if repo exists
     try {
       run(`git ls-remote https://github.com/${ghUser}/${REPO_NAME}.git HEAD`, { silent: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
       remoteExists = true;
