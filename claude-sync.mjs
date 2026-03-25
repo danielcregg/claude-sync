@@ -1188,29 +1188,36 @@ function cmdInstallHook() {
       return;
     }
 
-    log("Installing auto-sync hook (pushes on session end)...");
+    log("Installing auto-sync hooks...");
 
-    // Detect where this script is running from — works regardless of install location.
-    // Use forward slashes for Claude Code's bash shell (even on Windows).
-    // Use $HOME so the hook works on any machine (not just the one that installed it)
-    const hookCommand = `node $HOME/.local/bin/claude-sync.mjs push -q -m auto-sync`;
+    // Use $HOME so hooks work on any machine (not just the one that installed them)
+    const pushCmd = `node $HOME/.local/bin/claude-sync.mjs push -q -m auto-sync`;
+    const pullCmd = `node $HOME/.local/bin/claude-sync.mjs pull -q`;
 
-    // Create the Stop hook
-    const syncHook = {
-      hooks: [{
-        type: "command",
-        command: hookCommand,
-        timeout: 30,
-      }],
-    };
-
-    // Merge with existing hooks
     if (!settings.hooks) settings.hooks = {};
+
+    // Stop hook — push on session end
     if (!settings.hooks.Stop) settings.hooks.Stop = [];
-    settings.hooks.Stop.push(syncHook);
+    const hasStopHook = settings.hooks.Stop.some(e =>
+      e.hooks?.some(h => h.command?.includes("claude-sync") && h.command?.includes("push"))
+    );
+    if (!hasStopHook) {
+      settings.hooks.Stop.push({ hooks: [{ type: "command", command: pushCmd, timeout: 30 }] });
+    }
+
+    // SessionStart hook — pull on session start
+    if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
+    const hasStartHook = settings.hooks.SessionStart.some(e =>
+      e.hooks?.some(h => h.command?.includes("claude-sync") && h.command?.includes("pull"))
+    );
+    if (!hasStartHook) {
+      settings.hooks.SessionStart.push({ hooks: [{ type: "command", command: pullCmd, timeout: 30 }] });
+    }
 
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-    log("Auto-sync hook installed — settings will push on session end.");
+    log("Auto-sync hooks installed:");
+    log("  SessionStart → pull latest config");
+    log("  Stop → push changes");
   } catch (e) {
     const fallbackPath = "$HOME/.local/bin/claude-sync.mjs";
     warn("Could not auto-install hook. Add it manually to settings.json:");
