@@ -182,18 +182,20 @@ function checkGit() {
   }
 }
 
-function checkGh() {
+function hasGh() {
   try {
     run("gh --version", { silent: true });
-  } catch {
-    error("GitHub CLI (gh) is not installed.");
-    error("Install it: https://cli.github.com/");
-    process.exit(1);
-  }
-  try {
     run("gh auth status", { silent: true });
+    return true;
   } catch {
-    error("Not logged into GitHub. Run: gh auth login");
+    return false;
+  }
+}
+
+function checkGh() {
+  if (!hasGh()) {
+    error("GitHub CLI (gh) is not installed or not logged in.");
+    error("Install it: https://cli.github.com/");
     process.exit(1);
   }
 }
@@ -212,12 +214,27 @@ function isRepo() {
 }
 
 function getGhUser() {
-  const user = run('gh api user --jq ".login"', { silent: true, ignoreError: true });
-  if (user && !/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(user)) {
-    error(`Invalid GitHub username: ${user}`);
-    process.exit(1);
+  // Try gh first
+  if (hasGh()) {
+    const user = run('gh api user --jq ".login"', { silent: true, ignoreError: true });
+    if (user && /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(user)) {
+      return user;
+    }
   }
-  return user;
+
+  // Fallback: parse from existing git remote
+  if (isRepo()) {
+    const remote = git("remote get-url origin", { ignoreError: true });
+    if (remote) {
+      // Parse username from https://github.com/USERNAME/repo.git or git@github.com:USERNAME/repo.git
+      const httpsMatch = remote.match(/github\.com\/([^/]+)\//);
+      const sshMatch = remote.match(/github\.com:([^/]+)\//);
+      const user = httpsMatch?.[1] || sshMatch?.[1];
+      if (user) return user;
+    }
+  }
+
+  return "";
 }
 
 // ─────────────────────────────────────────────
@@ -229,7 +246,6 @@ function cmdInit(args) {
   const installHook = !skipHook;
 
   checkGit();
-  checkGh();
   checkClaudeDir();
 
   if (isRepo()) {
@@ -237,20 +253,48 @@ function cmdInit(args) {
     return;
   }
 
-  const ghUser = getGhUser();
+  // Try to get GitHub username (works with or without gh)
+  let ghUser = getGhUser();
+
+  // If no username detected, ask the user
   if (!ghUser) {
-    error("Could not detect GitHub username.");
+    // Check if gh is available for interactive setup
+    if (hasGh()) {
+      error("Could not detect GitHub username.");
+      process.exit(1);
+    }
+    // No gh — ask for username
+    error("GitHub CLI (gh) not found. Please provide your GitHub username.");
+    error("Usage: claude-sync init <github-username>");
+    error("");
+    error("Or install gh: https://cli.github.com/");
     process.exit(1);
   }
+
+  // Allow username override via argument
+  const userArg = args.find(a => !a.startsWith("-"));
+  if (userArg) ghUser = userArg;
+
   log(`GitHub user: ${c.bold}${ghUser}${c.reset}`);
 
   // Detect scenario: does a remote sync repo already exist?
+  // Try gh first, fall back to git ls-remote
   let remoteExists = false;
-  try {
-    run(`gh repo view ${ghUser}/${REPO_NAME}`, { silent: true });
-    remoteExists = true;
-  } catch {
-    remoteExists = false;
+  if (hasGh()) {
+    try {
+      run(`gh repo view ${ghUser}/${REPO_NAME}`, { silent: true });
+      remoteExists = true;
+    } catch {
+      remoteExists = false;
+    }
+  } else {
+    // No gh — try git ls-remote to check if repo exists
+    try {
+      run(`git ls-remote https://github.com/${ghUser}/${REPO_NAME}.git HEAD`, { silent: true });
+      remoteExists = true;
+    } catch {
+      remoteExists = false;
+    }
   }
 
   // Check if local has existing config worth preserving
@@ -259,6 +303,15 @@ function cmdInit(args) {
 
   // ─── Scenario 1: No remote repo → This is the first machine ───
   if (!remoteExists) {
+    if (!hasGh()) {
+      error("No sync repo found and GitHub CLI (gh) is not available.");
+      error("To set up sync for the first time, you need gh to create the repo.");
+      error("");
+      error("Option 1: Install gh (https://cli.github.com/) and run 'claude-sync init' again.");
+      error(`Option 2: Manually create a private repo called '${REPO_NAME}' on GitHub,`);
+      error("          then run 'claude-sync init' again.");
+      process.exit(1);
+    }
     log("No sync repo found — setting up for the first time.");
     log(`Creating private repo: ${ghUser}/${REPO_NAME}`);
     run(
@@ -371,7 +424,6 @@ function cmdClone(args) {
   let ghUser = args[0] || "";
 
   checkGit();
-  checkGh();
   checkClaudeDir();
 
   // Auto-detect GitHub username if not provided
@@ -379,7 +431,7 @@ function cmdClone(args) {
     ghUser = getGhUser();
     if (!ghUser) {
       error("Could not detect GitHub username.");
-      error("Usage: claude-sync clone [github-username]");
+      error("Usage: claude-sync clone <github-username>");
       process.exit(1);
     }
     log(`Detected GitHub user: ${c.bold}${ghUser}${c.reset}`);
@@ -390,13 +442,17 @@ function cmdClone(args) {
     return;
   }
 
+  // Verify repo exists (try gh first, fall back to git ls-remote)
   const repo = `${ghUser}/${REPO_NAME}`;
-  try {
-    run(`gh repo view ${repo}`, { silent: true });
-  } catch {
-    error(
-      `Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`
-    );
+  let repoFound = false;
+  if (hasGh()) {
+    try { run(`gh repo view ${repo}`, { silent: true }); repoFound = true; } catch { /* */ }
+  }
+  if (!repoFound) {
+    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true }); repoFound = true; } catch { /* */ }
+  }
+  if (!repoFound) {
+    error(`Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`);
     process.exit(1);
   }
 
@@ -417,7 +473,6 @@ function cmdDiff(args) {
   let ghUser = args[0] || "";
 
   checkGit();
-  checkGh();
   checkClaudeDir();
 
   // Auto-detect GitHub username if not provided
@@ -425,15 +480,22 @@ function cmdDiff(args) {
     ghUser = getGhUser();
     if (!ghUser) {
       error("Could not detect GitHub username.");
+      error("Usage: claude-sync diff <github-username>");
       process.exit(1);
     }
     log(`Detected GitHub user: ${c.bold}${ghUser}${c.reset}`);
   }
 
+  // Verify repo exists (try gh first, fall back to git ls-remote)
   const repo = `${ghUser}/${REPO_NAME}`;
-  try {
-    run(`gh repo view ${repo}`, { silent: true });
-  } catch {
+  let repoFound = false;
+  if (hasGh()) {
+    try { run(`gh repo view ${repo}`, { silent: true }); repoFound = true; } catch { /* */ }
+  }
+  if (!repoFound) {
+    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true }); repoFound = true; } catch { /* */ }
+  }
+  if (!repoFound) {
     error(`Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`);
     process.exit(1);
   }
