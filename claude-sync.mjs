@@ -462,13 +462,14 @@ function initGitAndPush(ghUser, installHook) {
     git("push -u origin main --quiet");
   } catch (e) {
     // Only force push if rejected due to existing content (not network/auth errors)
-    const errMsg = e.stderr || e.message || "";
+    const errMsg = String(e.stderr ?? e.message ?? "");
     if (errMsg.includes("rejected") || errMsg.includes("non-fast-forward") || errMsg.includes("fetch first")) {
       warn("Remote has existing content — force pushing initial sync.");
       git("push -u origin main --force --quiet");
     } else {
       error("Push failed: " + errMsg.split("\n")[0]);
       error("Check your network connection and GitHub authentication.");
+      return;  // Don't continue with hook install or success message
     }
   }
 
