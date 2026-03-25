@@ -838,6 +838,22 @@ function cmdDevices() {
     console.log(`    Last sync: ${lastSync}`);
     console.log("");
   }
+
+  // Show sync status for this machine
+  if (isRepo()) {
+    git("fetch origin main --quiet", { ignoreError: true });
+    const ahead = git("rev-list --count origin/main..HEAD", { ignoreError: true });
+    const behind = git("rev-list --count HEAD..origin/main", { ignoreError: true });
+    const statusOutput = git("status --porcelain", { ignoreError: true });
+
+    if ((!ahead || ahead === "0") && (!behind || behind === "0") && !statusOutput) {
+      log(`${c.green}In sync with GitHub.${c.reset}`);
+    } else {
+      if (statusOutput) warn("Local changes not pushed.");
+      if (ahead && ahead !== "0") warn(`Ahead of remote by ${ahead} commit(s).`);
+      if (behind && behind !== "0") warn(`Behind remote by ${behind} commit(s).`);
+    }
+  }
 }
 
 function timeAgo(isoDate) {
