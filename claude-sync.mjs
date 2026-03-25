@@ -753,6 +753,29 @@ function cmdDiff(args) {
   }
 }
 
+function cmdReset() {
+  checkGit();
+  checkClaudeDir();
+
+  if (!isRepo()) {
+    error("Not initialized. Run 'claude-sync init' first.");
+    process.exit(1);
+  }
+
+  log("Resetting local config to match remote...");
+
+  // Back up first
+  cmdBackup();
+
+  // Fetch and hard reset
+  git("fetch origin main --quiet");
+  git("checkout main --quiet", { ignoreError: true });
+  git("reset --hard origin/main --quiet");
+
+  log("Local config now matches remote exactly.");
+  log("A backup was created in case you need to restore anything.");
+}
+
 function cmdBackup() {
   checkClaudeDir();
 
@@ -1260,6 +1283,7 @@ ${c.bold}COMMANDS${c.reset}
   backup            Back up current config before syncing (existing installs)
   list              Show local config (skills, commands, agents, plugins)
   list --remote     Show what's on GitHub
+  reset             Force-align local with remote (backs up first)
   doctor            Check sync health and fix common issues
   version           Show version
 
@@ -1315,6 +1339,9 @@ switch (cmd) {
     break;
   case "backup":
     cmdBackup();
+    break;
+  case "reset":
+    cmdReset();
     break;
   case "list":
   case "ls":
