@@ -753,6 +753,104 @@ function cmdDiff(args) {
   }
 }
 
+// ─────────────────────────────────────────────
+// Device registry
+// ─────────────────────────────────────────────
+
+function getDeviceId() {
+  // Use hostname as the device identifier
+  return run("hostname", { silent: true, ignoreError: true }) || "unknown";
+}
+
+function getDeviceInfo() {
+  const hostname = getDeviceId();
+  const plat = process.platform === "win32" ? "Windows" :
+    process.platform === "darwin" ? "macOS" : "Linux";
+  const arch = process.arch;
+  const nodeVer = process.version;
+  const user = run("whoami", { silent: true, ignoreError: true }) || "";
+  const now = new Date().toISOString();
+
+  return {
+    hostname,
+    platform: plat,
+    arch,
+    node: nodeVer,
+    user,
+    lastSync: now,
+  };
+}
+
+function updateDeviceRegistry() {
+  const devicesFile = join(CLAUDE_DIR, "devices.json");
+  let devices = {};
+
+  // Load existing registry
+  if (existsSync(devicesFile)) {
+    try {
+      devices = JSON.parse(readFileSync(devicesFile, "utf8"));
+    } catch { devices = {}; }
+  }
+
+  // Update this device's entry
+  const id = getDeviceId();
+  devices[id] = getDeviceInfo();
+
+  // Write back
+  writeFileSync(devicesFile, JSON.stringify(devices, null, 2) + "\n");
+}
+
+function cmdDevices() {
+  checkClaudeDir();
+
+  const devicesFile = join(CLAUDE_DIR, "devices.json");
+  if (!existsSync(devicesFile)) {
+    warn("No devices registered yet. Run 'claude-sync push' to register this machine.");
+    return;
+  }
+
+  let devices;
+  try {
+    devices = JSON.parse(readFileSync(devicesFile, "utf8"));
+  } catch {
+    error("Could not read devices.json");
+    return;
+  }
+
+  const entries = Object.entries(devices);
+  if (entries.length === 0) {
+    warn("No devices registered.");
+    return;
+  }
+
+  const currentHost = getDeviceId();
+  bold(`Registered devices (${entries.length}):`);
+  console.log("");
+
+  for (const [hostname, info] of entries.sort()) {
+    const isCurrent = hostname === currentHost ? ` ${c.green}(this machine)${c.reset}` : "";
+    const lastSync = info.lastSync ? timeAgo(info.lastSync) : "unknown";
+
+    console.log(`  ${c.bold}${hostname}${c.reset}${isCurrent}`);
+    console.log(`    Platform:  ${info.platform || "?"} ${info.arch || ""}`);
+    console.log(`    User:      ${info.user || "?"}`);
+    console.log(`    Node:      ${info.node || "?"}`);
+    console.log(`    Last sync: ${lastSync}`);
+    console.log("");
+  }
+}
+
+function timeAgo(isoDate) {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute(s) ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour(s) ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day(s) ago`;
+}
+
 function cmdReset() {
   checkGit();
   checkClaudeDir();
@@ -843,6 +941,9 @@ function cmdPush(args) {
     error("Not initialized. Run 'claude-sync init' first.");
     process.exit(1);
   }
+
+  // Update device registry before checking for changes
+  updateDeviceRegistry();
 
   // Check for changes
   git("add -A", { ignoreError: true });
@@ -940,6 +1041,23 @@ function cmdPull(args) {
     } catch {
       warn(`Merge conflict — resolve manually in ${CLAUDE_DIR}`);
       warn("Your local changes are stashed. Run 'git stash list' to see them, 'git stash pop' to re-apply.");
+    }
+  }
+
+  // Update device registry after pull (records this machine's last sync)
+  updateDeviceRegistry();
+  git("add -A", { ignoreError: true });
+  try {
+    git('diff --cached --quiet', { silent: true });
+  } catch {
+    // Device registry changed — commit and push silently
+    const tmpFile = join(tmpdir(), `.claude-sync-commit-${randomUUID()}.tmp`);
+    writeFileSync(tmpFile, "device registry update");
+    try {
+      git(`commit --file "${tmpFile}" --quiet`);
+      git("push --quiet", { ignoreError: true });
+    } finally {
+      try { unlinkSync(tmpFile); } catch { /* ok */ }
     }
   }
 
@@ -1284,6 +1402,7 @@ ${c.bold}COMMANDS${c.reset}
   list              Show local config (skills, commands, agents, plugins)
   list --remote     Show what's on GitHub
   reset             Force-align local with remote (backs up first)
+  devices           Show all machines syncing with this config
   doctor            Check sync health and fix common issues
   version           Show version
 
@@ -1342,6 +1461,9 @@ switch (cmd) {
     break;
   case "reset":
     cmdReset();
+    break;
+  case "devices":
+    cmdDevices();
     break;
   case "list":
   case "ls":
