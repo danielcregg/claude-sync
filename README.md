@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/danielcregg/claude-sync/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version 2.0.0">
+  <img src="https://img.shields.io/badge/Version-2.1.0-green.svg" alt="Version 2.1.0">
   <img src="https://img.shields.io/badge/Claude%20Code-blueviolet.svg" alt="Claude Code">
   <img src="https://img.shields.io/badge/Node.js-informational.svg" alt="Node.js">
   <img src="https://img.shields.io/badge/Dependencies-git%20%2B%20gh-lightgrey.svg" alt="Dependencies: git + gh">
@@ -24,6 +24,7 @@
 You use Claude Code on multiple machines. Every time you set up a new one, you have to:
 - Reinstall all your custom skills
 - Reconfigure settings.json (plugins, permissions, model preferences)
+- Re-add all your MCP server definitions
 - Copy over agents, commands, hooks, and keybindings
 - Remember what you had and what you didn't
 
@@ -111,6 +112,7 @@ Settings auto-sync on session end via a Stop hook (installed by `init`).
 | `plugins/installed_plugins.json` | Plugin list |
 | `plugins/known_marketplaces.json` | Marketplace config |
 | `plugins/blocklist.json` | Blocked plugins |
+| `mcp-servers-sync.json` | MCP server definitions |
 
 </td>
 <td>
@@ -136,6 +138,30 @@ Settings auto-sync on session end via a Stop hook (installed by `init`).
 
 > The `.gitignore` is carefully tuned to sync **everything useful** while excluding **everything sensitive or machine-specific**. Credentials never leave your machine.
 
+### MCP Server Sync (v2.1.0)
+
+MCP server definitions from `~/.claude.json` are automatically extracted, synced, and merged across machines:
+
+```bash
+claude-sync list    # See your synced MCP servers
+```
+
+On **push**: MCP servers are collected from all projects in `~/.claude.json`, deduplicated, and saved to `mcp-servers-sync.json`.
+
+On **pull/clone**: MCP servers from the sync file are merged into your local `~/.claude.json` — existing servers are never overwritten, only missing ones are added.
+
+> **Note:** MCP servers that use `npx` commands (like `@playwright/mcp`) work everywhere. Servers with local paths (like Python venvs) may need manual adjustment on each machine.
+
+### Cross-Platform Path Handling (v2.1.0)
+
+Paths in synced files are automatically normalized using git smudge/clean filters:
+
+- **In the repo**: paths use `{{CLAUDE_SYNC_HOME}}` placeholder
+- **On your machine**: paths use your real home directory (`/home/you`, `C:\Users\you`, etc.)
+- **`git status`**: shows clean — the translation is transparent
+
+This means `settings.json`, marketplace config, and MCP server paths all work correctly when synced between Linux, macOS, and Windows.
+
 ---
 
 ## Commands
@@ -151,7 +177,11 @@ Settings auto-sync on session end via a Stop hook (installed by `init`).
 | `claude-sync clone [user]` | Set up new machine from existing repo (auto-detects GitHub user) |
 | `claude-sync diff` / `preview` | Preview what would change before cloning (safe, read-only) |
 | `claude-sync backup` | Back up current config before syncing |
+| `claude-sync list` / `ls` | Show local config (skills, commands, MCP servers, plugins) |
+| `claude-sync list --remote` | Show what's on GitHub |
+| `claude-sync devices` | Show all machines syncing with this config |
 | `claude-sync doctor` | Check sync health, detect issues |
+| `claude-sync reset`  | Force-align local with remote (backs up first) |
 | `claude-sync hook`   | Install the auto-sync hook |
 | `claude-sync version` | Show version |
 
@@ -225,12 +255,13 @@ claude-sync push -m "merged local skill"
 - **Doctor check**: `claude-sync doctor` verifies that no secrets are accidentally tracked.
 - **No third-party services**: Uses only `git` and `gh` (GitHub CLI) — tools you already have.
 
-### What if I have API keys in settings.json?
+### What about API keys?
 
-If you store API keys in the `env` block of `settings.json`, they **will** be synced (since `settings.json` is synced). Options:
-1. Move secrets to environment variables on each machine instead
-2. Use `settings.local.json` for machine-specific secrets (add it to `.gitignore`)
-3. Use your OS keychain for sensitive values
+If you have API keys in `settings.json` or in MCP server `env` blocks (e.g., Twitter API keys, RapidAPI keys), they **will** be synced to your private repo. Options:
+1. The repo is private — only you can access it
+2. Move secrets to environment variables on each machine instead
+3. Use `settings.local.json` for machine-specific secrets (excluded from sync)
+4. Use your OS keychain for sensitive values
 
 ---
 
@@ -254,7 +285,7 @@ If you store API keys in the `env` block of `settings.json`, they **will** be sy
 └──────────────────────────────────────────────────────────┘
 ```
 
-Under the hood, `claude-sync` is a single Node.js script that initializes a git repo inside `~/.claude/`, adds a comprehensive `.gitignore`, and pushes to a private GitHub repo. That's it. No magic. No daemons. No cloud services. Just Node.js and git. Works identically on Windows, macOS, and Linux.
+Under the hood, `claude-sync` is a single Node.js script that initializes a git repo inside `~/.claude/`, adds a comprehensive `.gitignore`, and pushes to a private GitHub repo. It uses git smudge/clean filters for cross-platform path normalization and extracts MCP server definitions from `~/.claude.json`. No magic. No daemons. No cloud services. Just Node.js and git.
 
 ---
 

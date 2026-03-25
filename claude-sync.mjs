@@ -3,15 +3,17 @@
 // https://github.com/danielcregg/claude-sync
 // MIT License — Daniel Cregg
 
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, rmSync, mkdirSync, cpSync, copyFileSync, statSync } from "fs";
 import { join, dirname } from "path";
 import { homedir, tmpdir, hostname as osHostname } from "os";
 import { randomUUID } from "crypto";
 
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 const REPO_NAME = "claude-sync-config";
 const GITIGNORE_MARKER = "# managed by claude-sync";
+const HOME_PLACEHOLDER = "{{CLAUDE_SYNC_HOME}}";
+const CLAUDE_JSON = join(homedir(), ".claude.json");
 
 const CONFIG_README = `# Claude Code Config
 
@@ -28,6 +30,7 @@ This repo is managed by [claude-sync](https://github.com/danielcregg/claude-sync
 | \`hooks/\` | Hook definitions |
 | \`rules/\` | Custom rules |
 | \`CLAUDE.md\` | Global instructions for Claude |
+| \`mcp-servers-sync.json\` | MCP server definitions (synced across machines) |
 | \`plugins/\` | Plugin list and marketplace config |
 
 ## How to use
@@ -98,6 +101,188 @@ function run(cmd, opts = {}) {
 
 function git(args, opts = {}) {
   return run(`git -C "${CLAUDE_DIR}" ${args}`, opts);
+}
+
+// ─────────────────────────────────────────────
+// Cross-platform path normalization (git smudge/clean filters)
+// ─────────────────────────────────────────────
+
+const GITATTRIBUTES = `# managed by claude-sync — cross-platform path normalization
+settings.json filter=claude-sync-paths
+plugins/known_marketplaces.json filter=claude-sync-paths
+mcp-servers-sync.json filter=claude-sync-paths
+`;
+
+function normalizePaths(content) {
+  const home = homedir();
+  let result = content;
+  // Build unique path variants (Unix forward-slash, Windows escaped backslash, raw backslash)
+  const patterns = [...new Set([
+    home,
+    home.replace(/\\/g, "/"),
+    home.replace(/\//g, "\\\\"),
+    home.replace(/\//g, "\\"),
+  ])].filter(Boolean).sort((a, b) => b.length - a.length); // longest first
+  for (const p of patterns) {
+    result = result.split(p).join(HOME_PLACEHOLDER);
+  }
+  return result;
+}
+
+function expandPaths(content) {
+  const home = homedir();
+  return content.split(HOME_PLACEHOLDER).join(home);
+}
+
+// Ensure git user.name and user.email are set (required for commits).
+// Auto-detects from GitHub CLI, falls back to system username.
+function ensureGitIdentity() {
+  const name = git("config user.name", { ignoreError: true });
+  const email = git("config user.email", { ignoreError: true });
+  if (name && email) return;
+
+  // Try GitHub CLI first
+  if (hasGh()) {
+    try {
+      if (!name) {
+        const ghName = run('gh api user --jq ".name"', { silent: true, ignoreError: true });
+        const ghLogin = run('gh api user --jq ".login"', { silent: true, ignoreError: true });
+        if (ghName || ghLogin) git(`config user.name "${ghName || ghLogin}"`, { ignoreError: true });
+      }
+      if (!email) {
+        const ghEmail = run('gh api user --jq ".email"', { silent: true, ignoreError: true });
+        const ghLogin = run('gh api user --jq ".login"', { silent: true, ignoreError: true });
+        const finalEmail = ghEmail || (ghLogin ? `${ghLogin}@users.noreply.github.com` : "");
+        if (finalEmail) git(`config user.email "${finalEmail}"`, { ignoreError: true });
+      }
+    } catch { /* ok */ }
+  }
+
+  // Fallback to system info
+  if (!git("config user.name", { ignoreError: true })) {
+    const user = run("whoami", { silent: true, ignoreError: true })?.trim() || "claude-sync-user";
+    git(`config user.name "${user}"`, { ignoreError: true });
+  }
+  if (!git("config user.email", { ignoreError: true })) {
+    git('config user.email "claude-sync@localhost"', { ignoreError: true });
+  }
+}
+
+// Set up git smudge/clean filters for transparent path normalization.
+// Clean filter: normalizes paths when staging (git add) — real paths → placeholder
+// Smudge filter: expands paths when checking out (git checkout/pull) — placeholder → real paths
+// Result: working tree always has real paths, repo always has placeholders, git status shows clean.
+function setupPathFilters() {
+  if (!isRepo()) return;
+
+  // Write .gitattributes if missing or outdated
+  const attrPath = join(CLAUDE_DIR, ".gitattributes");
+  const current = existsSync(attrPath) ? readFileSync(attrPath, "utf8") : "";
+  if (!current.includes("claude-sync-paths")) {
+    writeFileSync(attrPath, GITATTRIBUTES);
+  }
+
+  // Configure filter using execFileSync to avoid all shell escaping issues (cross-platform)
+  const scriptPath = join(homedir(), ".local", "bin", "claude-sync.mjs").replace(/\\/g, "/");
+  const cleanVal = `node "${scriptPath}" filter-clean`;
+  const smudgeVal = `node "${scriptPath}" filter-smudge`;
+  try {
+    execFileSync("git", ["-C", CLAUDE_DIR, "config", "filter.claude-sync-paths.clean", cleanVal], { stdio: "pipe" });
+    execFileSync("git", ["-C", CLAUDE_DIR, "config", "filter.claude-sync-paths.smudge", smudgeVal], { stdio: "pipe" });
+  } catch { /* ok */ }
+}
+
+// Re-apply smudge filter to working tree files (call after setupPathFilters on existing repos)
+function reapplySmudge() {
+  const filtered = ["settings.json", "plugins/known_marketplaces.json", "mcp-servers-sync.json"];
+  for (const file of filtered) {
+    const fp = join(CLAUDE_DIR, file);
+    if (!existsSync(fp)) continue;
+    try {
+      const content = readFileSync(fp, "utf8");
+      if (content.includes(HOME_PLACEHOLDER)) {
+        writeFileSync(fp, expandPaths(content));
+      }
+    } catch { /* ok */ }
+  }
+}
+
+// ─────────────────────────────────────────────
+// MCP server sync
+// ─────────────────────────────────────────────
+
+function extractMcpServers() {
+  if (!existsSync(CLAUDE_JSON)) return;
+  try {
+    const data = JSON.parse(readFileSync(CLAUDE_JSON, "utf8"));
+    const servers = {};
+
+    // Collect global MCP servers
+    if (data.mcpServers) {
+      for (const [name, config] of Object.entries(data.mcpServers)) {
+        servers[name] = config;
+      }
+    }
+
+    // Collect per-project MCP servers (dedup by name, first wins)
+    if (data.projects) {
+      for (const proj of Object.values(data.projects)) {
+        if (proj.mcpServers) {
+          for (const [name, config] of Object.entries(proj.mcpServers)) {
+            if (!servers[name]) servers[name] = config;
+          }
+        }
+      }
+    }
+
+    if (Object.keys(servers).length === 0) return;
+
+    // Write to sync file (paths get normalized by normalizeTrackedFiles later)
+    const syncFile = join(CLAUDE_DIR, "mcp-servers-sync.json");
+    writeFileSync(syncFile, JSON.stringify(servers, null, 2) + "\n");
+  } catch { /* ok */ }
+}
+
+function mergeMcpServers() {
+  const syncFile = join(CLAUDE_DIR, "mcp-servers-sync.json");
+  if (!existsSync(syncFile) || !existsSync(CLAUDE_JSON)) return;
+
+  try {
+    const servers = JSON.parse(readFileSync(syncFile, "utf8"));
+    const data = JSON.parse(readFileSync(CLAUDE_JSON, "utf8"));
+    let changed = false;
+
+    // Merge into global mcpServers
+    if (!data.mcpServers) data.mcpServers = {};
+    for (const [name, config] of Object.entries(servers)) {
+      if (!data.mcpServers[name]) {
+        data.mcpServers[name] = config;
+        changed = true;
+      }
+    }
+
+    // Also merge into the home-directory project entry if it exists
+    const home = homedir();
+    if (data.projects) {
+      for (const [projPath, proj] of Object.entries(data.projects)) {
+        // Match the home directory project (handles both / and \ separators)
+        const normalizedProjPath = projPath.replace(/\\/g, "/");
+        const normalizedHome = home.replace(/\\/g, "/");
+        if (normalizedProjPath === normalizedHome && proj.mcpServers) {
+          for (const [name, config] of Object.entries(servers)) {
+            if (!proj.mcpServers[name]) {
+              proj.mcpServers[name] = config;
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      writeFileSync(CLAUDE_JSON, JSON.stringify(data, null, 2) + "\n");
+    }
+  } catch { /* ok */ }
 }
 
 // ─────────────────────────────────────────────
@@ -454,7 +639,12 @@ function initGitAndPush(ghUser, installHook) {
     git(`remote set-url origin https://github.com/${ghUser}/${REPO_NAME}.git`);
   }
 
-  // Initial commit and push
+  // Extract MCP servers and set up cross-platform path filters
+  extractMcpServers();
+  setupPathFilters();
+  ensureGitIdentity();
+
+  // Initial commit and push (clean filter normalizes paths automatically)
   log("Committing and pushing...");
   git("add -A");
   git(`commit -m "Initial sync via claude-sync v${VERSION}" --quiet`);
@@ -490,9 +680,12 @@ function cloneFromRemote(ghUser) {
   } catch {
     git(`remote set-url origin https://github.com/${repo}.git`);
   }
+  setupPathFilters();
   git("fetch origin main --quiet");
   git("reset --hard origin/main --quiet");
   try { git("branch --set-upstream-to=origin/main main"); } catch { /* ok */ }
+  reapplySmudge();
+  mergeMcpServers();
 }
 
 function cmdClone(args) {
@@ -590,6 +783,7 @@ function cmdDiff(args) {
     "plugins/installed_plugins.json",
     "plugins/known_marketplaces.json",
     "plugins/blocklist.json",
+    "mcp-servers-sync.json",
   ];
 
   let differences = 0;
@@ -940,6 +1134,7 @@ function cmdBackup() {
     join("plugins", "installed_plugins.json"),
     join("plugins", "known_marketplaces.json"),
     join("plugins", "blocklist.json"),
+    "mcp-servers-sync.json",
   ];
 
   const dirsToCopy = ["skills", "commands", "agents", "hooks", "rules"];
@@ -988,6 +1183,11 @@ function cmdPush(args) {
     error("Not initialized. Run 'claude-sync init' first.");
     process.exit(1);
   }
+
+  // Extract MCP servers and ensure path filters are configured
+  extractMcpServers();
+  setupPathFilters();
+  ensureGitIdentity();
 
   // Check for real changes first (excluding devices.json)
   git("add -A", { ignoreError: true });
@@ -1122,6 +1322,11 @@ function cmdPull(args) {
     }
   }
 
+  // Ensure path filters are configured, expand any placeholders, merge MCP servers
+  setupPathFilters();
+  reapplySmudge();
+  mergeMcpServers();
+
   // Update device registry locally (will be pushed on next real push or session end)
   updateDeviceRegistry();
 
@@ -1231,6 +1436,25 @@ function cmdList(args) {
         log(`Plugins (${pluginNames.length}):`);
         for (const p of pluginNames.sort()) {
           console.log(`  ${p}`);
+        }
+      }
+    } catch { /* ok */ }
+  }
+
+  // MCP Servers
+  const mcpSyncFile = join(CLAUDE_DIR, "mcp-servers-sync.json");
+  if (existsSync(mcpSyncFile)) {
+    try {
+      const servers = JSON.parse(readFileSync(mcpSyncFile, "utf8"));
+      const names = Object.keys(servers);
+      if (names.length > 0) {
+        console.log("");
+        log(`MCP Servers (${names.length}):`);
+        for (const name of names.sort()) {
+          const s = servers[name];
+          const cmd = s.command || "?";
+          const hasKeys = s.env && Object.keys(s.env).length > 0;
+          console.log(`  ${name} (${cmd}${hasKeys ? " + env" : ""})`);
         }
       }
     } catch { /* ok */ }
@@ -1539,6 +1763,20 @@ switch (cmd) {
   case "hook":
     cmdInstallHook(args);
     break;
+  case "filter-clean": {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => data += chunk);
+    process.stdin.on("end", () => process.stdout.write(normalizePaths(data)));
+    break;
+  }
+  case "filter-smudge": {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => data += chunk);
+    process.stdin.on("end", () => process.stdout.write(expandPaths(data)));
+    break;
+  }
   case "version":
     console.log(`claude-sync v${VERSION}`);
     break;
