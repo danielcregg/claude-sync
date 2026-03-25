@@ -968,18 +968,37 @@ function cmdPush(args) {
     process.exit(1);
   }
 
-  // Update device registry before checking for changes
-  updateDeviceRegistry();
-
-  // Check for changes
+  // Check for real changes first (excluding devices.json)
   git("add -A", { ignoreError: true });
-  try {
-    git("diff --cached --quiet", { silent: true });
-    if (!quiet) log("Nothing to sync — already up to date.");
-    return;
-  } catch {
-    // there are changes — continue
+  const changedFiles = git("diff --cached --name-only", { ignoreError: true });
+  const realChanges = changedFiles.split("\n").filter(f => f && f !== "devices.json");
+
+  if (realChanges.length === 0) {
+    // No real changes — but still update device registry timestamp
+    // Only push if device info actually changed (not just timestamp)
+    const devicesFile = join(CLAUDE_DIR, "devices.json");
+    const currentInfo = getDeviceInfo();
+    let needsUpdate = true;
+    if (existsSync(devicesFile)) {
+      try {
+        const existing = JSON.parse(readFileSync(devicesFile, "utf8"));
+        const id = getDeviceId();
+        if (existing[id] && existing[id].hostname === currentInfo.hostname &&
+            existing[id].platform === currentInfo.platform) {
+          needsUpdate = false;  // Device already registered, just a timestamp diff
+        }
+      } catch { /* ok */ }
+    }
+    if (!needsUpdate) {
+      git("reset HEAD", { ignoreError: true });  // Unstage devices.json
+      if (!quiet) log("Nothing to sync — already up to date.");
+      return;
+    }
   }
+
+  // Real changes exist — update device registry and include it
+  updateDeviceRegistry();
+  git("add -A", { ignoreError: true });
 
   if (!quiet) {
     log("Changes to sync:");
@@ -1078,22 +1097,8 @@ function cmdPull(args) {
     }
   }
 
-  // Update device registry after pull (records this machine's last sync)
+  // Update device registry locally (will be pushed on next real push or session end)
   updateDeviceRegistry();
-  git("add -A", { ignoreError: true });
-  try {
-    git('diff --cached --quiet', { silent: true });
-  } catch {
-    // Device registry changed — commit and push silently
-    const tmpFile = join(tmpdir(), `.claude-sync-commit-${randomUUID()}.tmp`);
-    writeFileSync(tmpFile, "device registry update");
-    try {
-      git(`commit --file "${tmpFile}" --quiet`);
-      git("push --quiet", { ignoreError: true });
-    } finally {
-      try { unlinkSync(tmpFile); } catch { /* ok */ }
-    }
-  }
 
   if (!quiet) {
     if (incoming) {
