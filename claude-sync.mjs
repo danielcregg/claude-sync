@@ -192,6 +192,58 @@ function hasGh() {
   }
 }
 
+// Install gh to ~/.local/bin without sudo (Linux/macOS only)
+function installGhUserSpace() {
+  const plat = process.platform;
+  if (plat !== "linux" && plat !== "darwin") return false;
+
+  log("Installing GitHub CLI (gh) to ~/.local/bin (no sudo needed)...");
+  const installDir = join(homedir(), ".local", "bin");
+  const arch = process.arch === "arm64" ? "arm64" : "amd64";
+  const os = plat === "darwin" ? "macOS" : "linux";
+
+  try {
+    // Get latest version
+    const release = run('curl -s https://api.github.com/repos/cli/cli/releases/latest', { silent: true });
+    const version = release.match(/"tag_name":\s*"v([^"]+)"/)?.[1];
+    if (!version) throw new Error("Could not detect gh version");
+
+    const tarball = `gh_${version}_${os}_${arch}.tar.gz`;
+    const url = `https://github.com/cli/cli/releases/download/v${version}/${tarball}`;
+    const tmpTar = join(tmpdir(), tarball);
+
+    log(`Downloading gh v${version}...`);
+    run(`curl -sL "${url}" -o "${tmpTar}"`, { silent: true });
+    run(`mkdir -p "${installDir}"`, { silent: true });
+    run(`tar -xzf "${tmpTar}" -C "${tmpdir()}"`, { silent: true });
+    run(`cp "${join(tmpdir(), `gh_${version}_${os}_${arch}`, "bin", "gh")}" "${installDir}/gh"`, { silent: true });
+    run(`chmod +x "${installDir}/gh"`, { silent: true });
+    run(`rm -f "${tmpTar}"`, { ignoreError: true });
+
+    // Verify it works
+    const ghVer = run(`"${installDir}/gh" --version`, { silent: true });
+    log(`Installed: ${ghVer.split("\n")[0]}`);
+
+    // Add to PATH for this process
+    process.env.PATH = `${installDir}:${process.env.PATH}`;
+    return true;
+  } catch (e) {
+    warn("Could not auto-install gh. Continuing without it.");
+    return false;
+  }
+}
+
+function ensureGh() {
+  if (hasGh()) return true;
+  if (installGhUserSpace()) {
+    // After install, need to auth
+    if (hasGh()) return true;
+    log("gh installed but not authenticated. Run: gh auth login");
+    return false;
+  }
+  return false;
+}
+
 function checkGh() {
   if (!hasGh()) {
     error("GitHub CLI (gh) is not installed or not logged in.");
@@ -318,6 +370,9 @@ function cmdInit(args) {
   if (!remoteExists) {
     log("No sync repo found — setting up for the first time.");
     log(`Creating private repo: ${ghUser}/${REPO_NAME}`);
+
+    // Try to ensure gh is available (auto-install if needed)
+    if (!hasGh()) ensureGh();
 
     if (hasGh()) {
       run(
