@@ -853,7 +853,13 @@ function cmdPush(args) {
   } finally {
     try { unlinkSync(tmpFile); } catch { /* ok */ }
   }
-  git("push --quiet");
+  try {
+    git("push --quiet");
+  } catch {
+    // Fallback for detached HEAD (can happen after rebase)
+    git("checkout main --quiet", { ignoreError: true });
+    git("push origin main --quiet");
+  }
   if (!quiet) log("Pushed to GitHub.");
 }
 
@@ -895,6 +901,9 @@ function cmdPull(args) {
     hadChanges = true;
     git("stash --quiet");
   }
+
+  // Ensure we're on main branch (rebase can leave detached HEAD)
+  git("checkout main --quiet", { ignoreError: true });
 
   try {
     git("pull --rebase origin main --quiet");
