@@ -78,13 +78,26 @@ This:
 4. Pushes to GitHub
 5. Installs an auto-sync hook (pushes on session end)
 
-### New Machine (clone)
+### New Machine — Fresh Claude Code Install
+
+If Claude Code is freshly installed with no custom settings:
 
 ```bash
 claude-sync clone
 ```
 
-Done. All your skills, settings, and config are there.
+Done. All your skills, settings, and config are pulled from GitHub.
+
+### New Machine — Existing Claude Code Install
+
+If you already have settings and skills you want to keep:
+
+```bash
+claude-sync diff              # Preview what would change (read-only, safe)
+claude-sync backup            # Back up current config
+claude-sync clone             # Pull remote config
+# Copy back anything you want to keep from the backup
+```
 
 ### Keep in Sync
 

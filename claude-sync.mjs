@@ -912,8 +912,8 @@ ${c.bold}COMMANDS${c.reset}
   pull              Pull latest config from GitHub
   status            Show what has changed since last sync
   clone [user]      Set up a new machine from an existing sync repo
-  diff [user]       Preview what would change before cloning
-  backup            Back up current config before syncing
+  diff [user]       Preview what would change before cloning (existing installs)
+  backup            Back up current config before syncing (existing installs)
   doctor            Check sync health and fix common issues
   version           Show version
 
