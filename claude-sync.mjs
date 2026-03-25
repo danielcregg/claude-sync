@@ -1046,8 +1046,8 @@ function cmdInstallHook() {
 
     // Detect where this script is running from — works regardless of install location.
     // Use forward slashes for Claude Code's bash shell (even on Windows).
-    const scriptPath = process.argv[1].replace(/\\/g, "/");
-    const hookCommand = `node "${scriptPath}" push -q -m auto-sync`;
+    // Use $HOME so the hook works on any machine (not just the one that installed it)
+    const hookCommand = `node $HOME/.local/bin/claude-sync.mjs push -q -m auto-sync`;
 
     // Create the Stop hook
     const syncHook = {
@@ -1066,7 +1066,7 @@ function cmdInstallHook() {
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
     log("Auto-sync hook installed — settings will push on session end.");
   } catch (e) {
-    const fallbackPath = process.argv[1].replace(/\\/g, "/");
+    const fallbackPath = "$HOME/.local/bin/claude-sync.mjs";
     warn("Could not auto-install hook. Add it manually to settings.json:");
     console.log("");
     console.log(`"hooks": {
