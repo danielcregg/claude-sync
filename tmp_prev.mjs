@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 // claude-sync — Sync Claude Code settings, skills, and config across machines
 // https://github.com/danielcregg/claude-sync
 // MIT License — Daniel Cregg
@@ -6,7 +6,7 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, rmSync, mkdirSync, cpSync, copyFileSync, statSync } from "fs";
 import { join, dirname } from "path";
-import { homedir, tmpdir, hostname as osHostname } from "os";
+import { homedir, tmpdir } from "os";
 import { randomUUID } from "crypto";
 
 const VERSION = "2.0.0";
@@ -460,16 +460,9 @@ function initGitAndPush(ghUser, installHook) {
   git(`commit -m "Initial sync via claude-sync v${VERSION}" --quiet`);
   try {
     git("push -u origin main --quiet");
-  } catch (e) {
-    // Only force push if rejected due to existing content (not network/auth errors)
-    const errMsg = e.stderr || e.message || "";
-    if (errMsg.includes("rejected") || errMsg.includes("non-fast-forward") || errMsg.includes("fetch first")) {
-      warn("Remote has existing content — force pushing initial sync.");
-      git("push -u origin main --force --quiet");
-    } else {
-      error("Push failed: " + errMsg.split("\n")[0]);
-      error("Check your network connection and GitHub authentication.");
-    }
+  } catch {
+    warn("Remote has existing content — force pushing initial sync.");
+    git("push -u origin main --force --quiet");
   }
 
   if (installHook) cmdInstallHook();
@@ -765,8 +758,8 @@ function cmdDiff(args) {
 // ─────────────────────────────────────────────
 
 function getDeviceId() {
-  // Use Node.js native hostname — no subprocess, cross-platform, already trimmed
-  return osHostname() || "unknown";
+  // Use hostname as the device identifier
+  return run("hostname", { silent: true, ignoreError: true }) || "unknown";
 }
 
 function getDeviceInfo() {
@@ -775,7 +768,7 @@ function getDeviceInfo() {
     process.platform === "darwin" ? "macOS" : "Linux";
   const arch = process.arch;
   const nodeVer = process.version;
-  const user = run("whoami", { silent: true, ignoreError: true })?.trim() || "";
+  const user = run("whoami", { silent: true, ignoreError: true }) || "";
   const now = new Date().toISOString();
 
   return {
@@ -898,21 +891,8 @@ function cmdReset() {
   // Back up first
   cmdBackup();
 
-  // Fetch and verify remote exists
-  try {
-    git("fetch origin main --quiet");
-  } catch {
-    error("Could not fetch from remote. Check your network connection.");
-    return;
-  }
-
-  // Verify origin/main exists
-  const remoteRef = git("rev-parse origin/main", { ignoreError: true });
-  if (!remoteRef) {
-    error("Remote branch origin/main not found. Is the repo empty?");
-    return;
-  }
-
+  // Fetch and hard reset
+  git("fetch origin main --quiet");
   git("checkout main --quiet", { ignoreError: true });
   git("reset --hard origin/main --quiet");
 
@@ -1003,13 +983,9 @@ function cmdPush(args) {
       try {
         const existing = JSON.parse(readFileSync(devicesFile, "utf8"));
         const id = getDeviceId();
-        const e = existing[id];
-        if (e && e.hostname === currentInfo.hostname &&
-            e.platform === currentInfo.platform &&
-            e.arch === currentInfo.arch &&
-            e.node === currentInfo.node &&
-            e.user === currentInfo.user) {
-          needsUpdate = false;  // Device info unchanged, just a timestamp diff
+        if (existing[id] && existing[id].hostname === currentInfo.hostname &&
+            existing[id].platform === currentInfo.platform) {
+          needsUpdate = false;  // Device already registered, just a timestamp diff
         }
       } catch { /* ok */ }
     }
