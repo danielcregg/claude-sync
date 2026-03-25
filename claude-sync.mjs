@@ -292,23 +292,6 @@ function getGhUser() {
     if (sshMatch && validUser(sshMatch[1])) return sshMatch[1];
   } catch { /* ok */ }
 
-  // Method 4: Scan other git repos for a GitHub remote
-  try {
-    const home = homedir();
-    const candidates = readdirSync(home).filter(d => {
-      try { return statSync(join(home, d, ".git")).isDirectory(); } catch { return false; }
-    });
-    for (const dir of candidates) {
-      const remote = run(`git -C "${join(home, dir)}" remote get-url origin`, { ignoreError: true });
-      if (remote) {
-        const httpsMatch = remote.match(/github\.com\/([^/]+)\//);
-        const sshMatch = remote.match(/github\.com:([^/]+)\//);
-        const user = httpsMatch?.[1] || sshMatch?.[1];
-        if (validUser(user)) return user;
-      }
-    }
-  } catch { /* ok */ }
-
   return "";
 }
 
@@ -355,7 +338,7 @@ function cmdInit(args) {
   } else {
     // No gh — try git ls-remote to check if repo exists
     try {
-      run(`git ls-remote https://github.com/${ghUser}/${REPO_NAME}.git HEAD`, { silent: true });
+      run(`git ls-remote https://github.com/${ghUser}/${REPO_NAME}.git HEAD`, { silent: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
       remoteExists = true;
     } catch {
       remoteExists = false;
@@ -520,7 +503,7 @@ function cmdClone(args) {
     try { run(`gh repo view ${repo}`, { silent: true }); repoFound = true; } catch { /* */ }
   }
   if (!repoFound) {
-    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true }); repoFound = true; } catch { /* */ }
+    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }); repoFound = true; } catch { /* */ }
   }
   if (!repoFound) {
     error(`Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`);
@@ -564,7 +547,7 @@ function cmdDiff(args) {
     try { run(`gh repo view ${repo}`, { silent: true }); repoFound = true; } catch { /* */ }
   }
   if (!repoFound) {
-    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true }); repoFound = true; } catch { /* */ }
+    try { run(`git ls-remote https://github.com/${repo}.git HEAD`, { silent: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }); repoFound = true; } catch { /* */ }
   }
   if (!repoFound) {
     error(`Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`);
