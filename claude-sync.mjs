@@ -921,6 +921,141 @@ function cmdPull(args) {
   }
 }
 
+function cmdList(args) {
+  const showRemote = args.includes("--remote") || args.includes("-r");
+
+  checkClaudeDir();
+
+  if (showRemote) {
+    // Show what's on GitHub
+    if (!isRepo()) {
+      error("Not initialized. Run 'claude-sync init' first.");
+      process.exit(1);
+    }
+    git("fetch origin main --quiet", { ignoreError: true });
+    const remoteFiles = git("ls-tree -r --name-only origin/main", { ignoreError: true });
+    if (remoteFiles) {
+      bold("Remote config (GitHub):");
+      console.log("");
+      printFileTree(remoteFiles.split("\n").filter(Boolean));
+    } else {
+      warn("Could not fetch remote file list.");
+    }
+    return;
+  }
+
+  // Show local config
+  bold("Local config:");
+  console.log("");
+
+  // Settings
+  if (existsSync(join(CLAUDE_DIR, "settings.json"))) {
+    log("settings.json");
+  }
+  if (existsSync(join(CLAUDE_DIR, "settings.local.json"))) {
+    log("settings.local.json (local only — not synced)");
+  }
+
+  // Skills
+  const skillsDir = join(CLAUDE_DIR, "skills");
+  if (existsSync(skillsDir)) {
+    const skills = readdirSync(skillsDir).filter(d => {
+      try { return statSync(join(skillsDir, d)).isDirectory(); } catch { return false; }
+    });
+    if (skills.length > 0) {
+      console.log("");
+      log(`Skills (${skills.length}):`);
+      for (const skill of skills.sort()) {
+        const skillFile = join(skillsDir, skill, "SKILL.md");
+        if (existsSync(skillFile)) {
+          // Extract description from frontmatter
+          const content = readFileSync(skillFile, "utf8");
+          const descMatch = content.match(/description:\s*\|?\s*\n?\s*(.+)/);
+          const desc = descMatch ? descMatch[1].trim().slice(0, 60) : "";
+          console.log(`  ${skill}${desc ? ` — ${desc}` : ""}`);
+        } else {
+          console.log(`  ${skill}`);
+        }
+      }
+    }
+  }
+
+  // Commands
+  const cmdsDir = join(CLAUDE_DIR, "commands");
+  if (existsSync(cmdsDir)) {
+    const cmds = readdirSync(cmdsDir).filter(f => f.endsWith(".md"));
+    if (cmds.length > 0) {
+      console.log("");
+      log(`Commands (${cmds.length}):`);
+      for (const cmd of cmds.sort()) {
+        console.log(`  /${cmd.replace(".md", "")}`);
+      }
+    }
+  }
+
+  // Agents
+  const agentsDir = join(CLAUDE_DIR, "agents");
+  if (existsSync(agentsDir)) {
+    const agents = readdirSync(agentsDir).filter(f => f.endsWith(".md"));
+    if (agents.length > 0) {
+      console.log("");
+      log(`Agents (${agents.length}):`);
+      for (const a of agents.sort()) {
+        console.log(`  ${a.replace(".md", "")}`);
+      }
+    }
+  }
+
+  // Plugins
+  const pluginsFile = join(CLAUDE_DIR, "plugins", "installed_plugins.json");
+  if (existsSync(pluginsFile)) {
+    try {
+      const plugins = JSON.parse(readFileSync(pluginsFile, "utf8"));
+      const pluginNames = Array.isArray(plugins) ? plugins.map(p => p.name || p) : Object.keys(plugins);
+      if (pluginNames.length > 0) {
+        console.log("");
+        log(`Plugins (${pluginNames.length}):`);
+        for (const p of pluginNames.sort()) {
+          console.log(`  ${p}`);
+        }
+      }
+    } catch { /* ok */ }
+  }
+
+  // Other config files
+  const otherFiles = ["CLAUDE.md", "keybindings.json", "statusline-command.sh"];
+  const found = otherFiles.filter(f => existsSync(join(CLAUDE_DIR, f)));
+  if (found.length > 0) {
+    console.log("");
+    log("Other:");
+    for (const f of found) {
+      console.log(`  ${f}`);
+    }
+  }
+}
+
+function printFileTree(files) {
+  const dirs = {};
+  for (const file of files) {
+    const parts = file.split("/");
+    if (parts.length === 1) {
+      console.log(`  ${file}`);
+    } else {
+      const dir = parts.slice(0, -1).join("/");
+      if (!dirs[dir]) {
+        dirs[dir] = [];
+      }
+      dirs[dir].push(parts[parts.length - 1]);
+    }
+  }
+  for (const [dir, dirFiles] of Object.entries(dirs).sort()) {
+    console.log(`  ${dir}/`);
+    for (const f of dirFiles.sort()) {
+      console.log(`    ${f}`);
+    }
+  }
+}
+
 function cmdStatus() {
   checkClaudeDir();
   if (!isRepo()) {
@@ -1107,6 +1242,8 @@ ${c.bold}COMMANDS${c.reset}
   clone [user]      Set up a new machine from an existing sync repo
   diff [user]       Preview what would change before cloning (existing installs)
   backup            Back up current config before syncing (existing installs)
+  list              Show local config (skills, commands, agents, plugins)
+  list --remote     Show what's on GitHub
   doctor            Check sync health and fix common issues
   version           Show version
 
@@ -1162,6 +1299,10 @@ switch (cmd) {
     break;
   case "backup":
     cmdBackup();
+    break;
+  case "list":
+  case "ls":
+    cmdList(args);
     break;
   case "doctor":
     cmdDoctor(args);
