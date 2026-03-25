@@ -155,6 +155,8 @@ claude-sync status            # Check what's changed
 | `claude-sync pull` | Pull latest from GitHub |
 | `claude-sync status` | Show changes and sync state |
 | `claude-sync clone` | Set up new machine from existing repo (auto-detects GitHub user) |
+| `claude-sync diff` | Preview what would change before cloning (safe, read-only) |
+| `claude-sync backup` | Back up current config before syncing |
 | `claude-sync doctor` | Check sync health, detect issues |
 | `claude-sync version` | Show version |
 
@@ -194,6 +196,29 @@ The hook adds this to your `settings.json` (with the absolute path to your insta
 ```
 
 The path is detected automatically at install time — no manual editing needed.
+
+---
+
+## Syncing to an Existing Machine
+
+Already have Claude Code set up on another machine with settings you want to keep? Don't blindly clone — preview first:
+
+```bash
+# 1. See what would change
+claude-sync diff
+
+# 2. Back up your current config
+claude-sync backup
+
+# 3. Clone the remote config
+claude-sync clone
+
+# 4. If you lost something, restore from backup
+cp ~/.claude-backup-2026-03-24T23-30-00/skills/my-local-skill ~/.claude/skills/
+claude-sync push -m "merged local skill"
+```
+
+`diff` is completely read-only — it clones the remote repo to a temp directory, compares, and cleans up. Your local config is never touched.
 
 ---
 

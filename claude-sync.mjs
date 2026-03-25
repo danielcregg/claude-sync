@@ -360,6 +360,200 @@ function cmdClone(args) {
   log("Your skills, settings, and config are ready.");
 }
 
+function cmdDiff(args) {
+  let ghUser = args[0] || "";
+
+  checkGit();
+  checkGh();
+  checkClaudeDir();
+
+  // Auto-detect GitHub username if not provided
+  if (!ghUser) {
+    ghUser = getGhUser();
+    if (!ghUser) {
+      error("Could not detect GitHub username.");
+      process.exit(1);
+    }
+    log(`Detected GitHub user: ${c.bold}${ghUser}${c.reset}`);
+  }
+
+  const repo = `${ghUser}/${REPO_NAME}`;
+  try {
+    run(`gh repo view ${repo}`, { silent: true });
+  } catch {
+    error(`Repo ${repo} not found. Did you run 'claude-sync init' on your other machine?`);
+    process.exit(1);
+  }
+
+  // Clone to temp directory for comparison
+  const tmpDir = join(tmpdir(), `claude-sync-diff-${randomUUID()}`);
+  log("Fetching remote config for comparison...");
+  run(`git clone --quiet https://github.com/${repo}.git "${tmpDir}"`);
+
+  // Compare key files
+  const filesToCompare = [
+    "settings.json",
+    ".gitignore",
+  ];
+
+  let differences = 0;
+
+  // Compare individual files
+  for (const file of filesToCompare) {
+    const localPath = join(CLAUDE_DIR, file);
+    const remotePath = join(tmpDir, file);
+    const localExists = existsSync(localPath);
+    const remoteExists = existsSync(remotePath);
+
+    if (!localExists && remoteExists) {
+      log(`${c.green}+ ${file}${c.reset} (new — will be added)`);
+      differences++;
+    } else if (localExists && !remoteExists) {
+      log(`${c.yellow}~ ${file}${c.reset} (local only — will be kept)`);
+    } else if (localExists && remoteExists) {
+      const localContent = readFileSync(localPath, "utf8");
+      const remoteContent = readFileSync(remotePath, "utf8");
+      if (localContent !== remoteContent) {
+        log(`${c.yellow}~ ${file}${c.reset} (differs — will be overwritten)`);
+        // Show a summary of what's different
+        try {
+          const diff = run(`git diff --no-index --stat "${localPath}" "${remotePath}"`, { ignoreError: true });
+          if (diff) console.log("  " + diff.split("\n").pop());
+        } catch { /* ok */ }
+        differences++;
+      }
+    }
+  }
+
+  // Compare skills directories
+  const localSkillsDir = join(CLAUDE_DIR, "skills");
+  const remoteSkillsDir = join(tmpDir, "skills");
+
+  if (existsSync(remoteSkillsDir)) {
+    // Find remote skills
+    const remoteSkills = new Set();
+    try {
+      const entries = run(`git -C "${tmpDir}" ls-files`, { ignoreError: true }).split("\n").filter(Boolean);
+      for (const entry of entries) {
+        if (entry.startsWith("skills/")) {
+          const skillName = entry.split("/")[1];
+          if (skillName) remoteSkills.add(skillName);
+        }
+      }
+    } catch { /* ok */ }
+
+    // Find local skills
+    const localSkills = new Set();
+    if (existsSync(localSkillsDir)) {
+      try {
+        const dirs = run(`ls "${localSkillsDir}"`, { ignoreError: true }).split("\n").filter(Boolean);
+        for (const d of dirs) localSkills.add(d);
+      } catch { /* ok */ }
+    }
+
+    // Skills only in remote (will be added)
+    for (const skill of remoteSkills) {
+      if (!localSkills.has(skill)) {
+        log(`${c.green}+ skills/${skill}/${c.reset} (new skill — will be added)`);
+        differences++;
+      }
+    }
+
+    // Skills in both (may differ)
+    for (const skill of remoteSkills) {
+      if (localSkills.has(skill)) {
+        const localSkill = join(localSkillsDir, skill, "SKILL.md");
+        const remoteSkill = join(remoteSkillsDir, skill, "SKILL.md");
+        if (existsSync(localSkill) && existsSync(remoteSkill)) {
+          const l = readFileSync(localSkill, "utf8");
+          const r = readFileSync(remoteSkill, "utf8");
+          if (l !== r) {
+            log(`${c.yellow}~ skills/${skill}/${c.reset} (differs — will be overwritten)`);
+            differences++;
+          }
+        }
+      }
+    }
+
+    // Skills only local (will be kept — not in remote gitignore)
+    for (const skill of localSkills) {
+      if (!remoteSkills.has(skill)) {
+        log(`  skills/${skill}/ (local only — will be kept)`);
+      }
+    }
+  }
+
+  // Compare commands
+  const localCmdsDir = join(CLAUDE_DIR, "commands");
+  const remoteCmdsDir = join(tmpDir, "commands");
+  if (existsSync(remoteCmdsDir)) {
+    try {
+      const remoteCmds = run(`ls "${remoteCmdsDir}"`, { ignoreError: true }).split("\n").filter(Boolean);
+      for (const cmd of remoteCmds) {
+        const localCmd = join(localCmdsDir, cmd);
+        if (!existsSync(localCmd)) {
+          log(`${c.green}+ commands/${cmd}${c.reset} (new command — will be added)`);
+          differences++;
+        }
+      }
+    } catch { /* ok */ }
+  }
+
+  // Cleanup
+  try { run(`rm -rf "${tmpDir}"`, { ignoreError: true }); } catch { /* ok */ }
+
+  console.log("");
+  if (differences === 0) {
+    log("No differences found. Your local config matches the remote.");
+  } else {
+    log(`${differences} difference(s) found.`);
+    console.log("");
+    log("To sync: claude-sync clone");
+    log("To back up first: claude-sync backup");
+    log("To back up then sync: claude-sync backup && claude-sync clone");
+  }
+}
+
+function cmdBackup() {
+  checkClaudeDir();
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const backupDir = `${CLAUDE_DIR}-backup-${timestamp}`;
+
+  log(`Backing up ${CLAUDE_DIR} to ${backupDir}...`);
+
+  // Copy the key files, not the entire directory (skip huge dirs like projects/, local/)
+  const toCopy = [
+    "settings.json",
+    "settings.local.json",
+    "keybindings.json",
+    "CLAUDE.md",
+    "statusline-command.sh",
+    ".gitignore",
+  ];
+
+  const dirsToCopy = ["skills", "commands", "agents", "hooks", "rules"];
+
+  run(`mkdir -p "${backupDir}"`);
+
+  for (const file of toCopy) {
+    const src = join(CLAUDE_DIR, file);
+    if (existsSync(src)) {
+      run(`cp "${src}" "${backupDir}/"`, { ignoreError: true });
+    }
+  }
+
+  for (const dir of dirsToCopy) {
+    const src = join(CLAUDE_DIR, dir);
+    if (existsSync(src)) {
+      run(`cp -r "${src}" "${backupDir}/"`, { ignoreError: true });
+    }
+  }
+
+  log(`Backup complete: ${backupDir}`);
+  log("To restore: cp -r " + backupDir + "/* ~/.claude/");
+}
+
 function cmdPush(args) {
   let message = "";
   let quiet = false;
@@ -654,6 +848,8 @@ ${c.bold}COMMANDS${c.reset}
   pull              Pull latest config from GitHub
   status            Show what has changed since last sync
   clone [user]      Set up a new machine from an existing sync repo
+  diff [user]       Preview what would change before cloning
+  backup            Back up current config before syncing
   doctor            Check sync health and fix common issues
   version           Show version
 
@@ -669,7 +865,10 @@ ${c.bold}EXAMPLES${c.reset}
   claude-sync push                    # Sync changes to GitHub
   claude-sync push -m "added skill"   # Push with custom message
   claude-sync pull                    # Pull on another machine
-  claude-sync clone                   # New machine setup (auto-detects user)
+  claude-sync diff                     # Preview what would change before cloning
+  claude-sync backup                   # Back up current config
+  claude-sync backup && claude-sync clone  # Safe sync on existing machine
+  claude-sync clone                    # New machine setup (auto-detects user)
   claude-sync status                  # Check what changed
 
 ${c.bold}AUTO-SYNC${c.reset}
@@ -699,6 +898,13 @@ switch (cmd) {
     break;
   case "clone":
     cmdClone(args);
+    break;
+  case "diff":
+  case "preview":
+    cmdDiff(args);
+    break;
+  case "backup":
+    cmdBackup();
     break;
   case "doctor":
     cmdDoctor(args);
